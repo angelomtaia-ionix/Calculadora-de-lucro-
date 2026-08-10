@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora de Lucro</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root{
+    --paper:#F2ECDE;
+    --ink:#1E2A38;
+    --zinc-1:#B9BEC2;
+    --zinc-2:#9BA1A6;
+    --zinc-3:#8B9096;
+    --ochre:#D6A11C;
+    --brick:#B4432D;
+    --teal:#2E6F5E;
+    --line:#D8CFB8;
+    --card:#FBF8F1;
+    --danger:#B4432D;
+    --good:#2E6F5E;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .signboard{
+    position:relative;
+    background:
+      repeating-linear-gradient(180deg,
+        var(--zinc-1) 0px, var(--zinc-1) 3px,
+        var(--zinc-2) 3px, var(--zinc-2) 6px,
+        var(--zinc-3) 6px, var(--zinc-3) 9px);
+    padding:28px 20px 22px;
+    border-bottom:6px solid var(--ink);
+    box-shadow: inset 0 -12px 18px -12px rgba(0,0,0,0.35);
+  }
+  .signboard::after{
+    content:"";
+    position:absolute; inset:0;
+    background: linear-gradient(90deg, rgba(0,0,0,0.12), transparent 15%, transparent 85%, rgba(0,0,0,0.12));
+    pointer-events:none;
+  }
+  .signboard h1{
+    font-family:'Fraunces', serif;
+    font-weight:900;
+    font-size:clamp(26px,7vw,36px);
+    color:var(--brick);
+    -webkit-text-stroke:1.5px #4a1c10;
+    text-shadow: 2px 2px 0 rgba(0,0,0,0.15), 0 0 1px #4a1c10;
+    margin:0;
+    letter-spacing:0.5px;
+    transform: rotate(-0.6deg);
+  }
+  .signboard p{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    color:var(--ink);
+    background:var(--ochre);
+    display:inline-block;
+    padding:3px 10px;
+    margin:8px 0 0;
+    font-size:14px;
+    border-radius:2px;
+    transform: rotate(0.4deg);
+  }
+
+  nav{
+    display:flex;
+    background:var(--ink);
+    overflow-x:auto;
+  }
+  nav button{
+    flex:1;
+    min-width:84px;
+    background:none;
+    border:none;
+    color:#B9C2CC;
+    font-family:'IBM Plex Sans',sans-serif;
+    font-weight:600;
+    font-size:12.5px;
+    padding:13px 6px;
+    cursor:pointer;
+    border-bottom:3px solid transparent;
+    white-space:nowrap;
+  }
+  nav button.active{
+    color:#fff;
+    border-bottom:3px solid var(--ochre);
+    background:rgba(255,255,255,0.05);
+  }
+
+  main{ padding:16px; max-width:640px; margin:0 auto 60px; }
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .card h2{
+    font-family:'Fraunces', serif;
+    font-size:15px;
+    font-weight:700;
+    margin:0 0 12px;
+    color:var(--ink);
+    text-transform:uppercase;
+    letter-spacing:0.5px;
+  }
+
+  .stat-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+  .stat{
+    background:var(--ink);
+    color:#fff;
+    border-radius:8px;
+    padding:14px 12px;
+  }
+  .stat .label{ font-size:11px; opacity:0.7; text-transform:uppercase; letter-spacing:0.5px;}
+  .stat .value{ font-family:'Fraunces',serif; font-size:21px; font-weight:700; margin-top:4px;}
+  .stat.lucro .value{ color:var(--ochre); }
+  .stat.gasto .value{ color:#E8A6A6; }
+  .stat.vendas .value{ color:#9FD8C8; }
+
+  label{
+    display:block;
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--ink);
+    margin:10px 0 4px;
+  }
+  input, select{
+    width:100%;
+    padding:10px 11px;
+    font-size:15px;
+    border:1.5px solid var(--line);
+    border-radius:6px;
+    background:#fff;
+    font-family:'IBM Plex Sans',sans-serif;
+    color:var(--ink);
+  }
+  input:focus, select:focus{
+    outline:none;
+    border-color:var(--ochre);
+  }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  button.primary{
+    width:100%;
+    margin-top:14px;
+    padding:12px;
+    background:var(--brick);
+    color:#fff;
+    border:none;
+    border-radius:6px;
+    font-weight:700;
+    font-size:14.5px;
+    cursor:pointer;
+    font-family:'IBM Plex Sans',sans-serif;
+  }
+  button.primary:active{ opacity:0.85; }
+  button.secondary{
+    background:none;
+    border:1.5px solid var(--line);
+    color:var(--ink);
+    padding:8px 12px;
+    border-radius:6px;
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+  }
+
+  .preview{
+    margin-top:10px;
+    padding:10px 12px;
+    background:#FFF9EA;
+    border:1px dashed var(--ochre);
+    border-radius:6px;
+    font-size:13px;
+  }
+  .preview b{ color:var(--brick); }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{
+    text-align:left;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.4px;
+    color:var(--zinc-3);
+    border-bottom:1.5px solid var(--line);
+    padding:6px 4px;
+  }
+  td{ padding:8px 4px; border-bottom:1px solid var(--line); vertical-align:top;}
+  tr:last-child td{ border-bottom:none; }
+  .tag{
+    display:inline-block;
+    font-size:10px;
+    font-weight:700;
+    padding:2px 6px;
+    border-radius:20px;
+    text-transform:uppercase;
+  }
+  .tag.entrada{ background:#E3EFEB; color:var(--teal); }
+  .tag.venda{ background:#FCEAE0; color:var(--brick); }
+  .tag.gasto{ background:#EFE6D2; color:#8A6A12; }
+  .lucro-pos{ color:var(--good); font-weight:700; }
+  .lucro-neg{ color:var(--danger); font-weight:700; }
+  .empty{ text-align:center; color:var(--zinc-3); padding:24px 8px; font-size:13px;}
+  .del{
+    background:none;border:none;color:var(--zinc-3);cursor:pointer;font-size:16px;padding:2px 6px;
+  }
+  .stock-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:9px 0; border-bottom:1px solid var(--line);
+  }
+  .stock-row:last-child{ border-bottom:none; }
+  .stock-name{ font-weight:600; font-size:13.5px; }
+  .stock-qty{ font-size:12px; color:var(--zinc-3); }
+  .low{ color:var(--brick); font-weight:700; }
+  .foot-note{ font-size:11px; color:var(--zinc-3); text-align:center; margin-top:18px; padding:0 20px; line-height:1.5;}
+  .toast{
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:#fff; padding:10px 18px; border-radius:20px;
+    font-size:13px; font-weight:600; opacity:0; transition:opacity 0.25s;
+    pointer-events:none; z-index:50;
+  }
+  .toast.show{ opacity:1; }
+</style>
+</head>
+<body>
+
+<div class="signboard">
+  <h1>Calculadora de Lucro</h1>
+  <p>Telefones &amp; acessórios</p>
+</div>
+
+<nav id="tabs">
+  <button data-tab="resumo" class="active">Resumo</button>
+  <button data-tab="gasto">Gastos&nbsp;iniciais</button>
+  <button data-tab="entrada">Entrada</button>
+  <button data-tab="venda">Venda</button>
+  <button data-tab="stock">Stock</button>
+</nav>
+
+<main id="app">Carregando…</main>
+<div class="toast" id="toast"></div>
+
+<script>
+window.addEventListener('error', function(e){
+  var app = document.getElementById('app');
+  if(app){
+    app.innerHTML = '<div class="card"><h2 style="color:#B4432D">Ocorreu um erro</h2>' +
+      '<p style="font-size:13px">' + (e.message || 'Erro desconhecido') + '</p>' +
+      '<p style="font-size:12px;color:#8B9096">Tira um print deste ecrã e envia para ajuda a corrigir.</p></div>';
+  }
+});
+const STORE_KEY = 'ribaue-banca-v1';
+let state = { gastos: [], entradas: [], vendas: [] };
+let currentTab = 'resumo';
+let loaded = false;
+
+function fmtMT(n){
+  return (Math.round(n*100)/100).toLocaleString('pt-PT') + ' MT';
+}
+function todayStr(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+function fmtDate(s){
+  const [y,m,d] = s.split('-');
+  return `${d}/${m}/${y}`;
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1600);
+}
+
+function loadState(){
+  try{
+    let raw = localStorage.getItem('calculadora-lucro-estado');
+    if(!raw){
+      // migração: procura dados guardados com o nome antigo da app
+      const antigo = localStorage.getItem('mtaia-estado');
+      if(antigo){
+        raw = antigo;
+        localStorage.setItem('calculadora-lucro-estado', antigo);
+      }
+    }
+    if(raw){
+      state = JSON.parse(raw);
+    }
+  }catch(e){
+    // no data yet
+  }
+  loaded = true;
+  render();
+}
+
+function saveState(){
+  try{
+    localStorage.setItem('calculadora-lucro-estado', JSON.stringify(state));
+  }catch(e){
+    showToast('Erro ao guardar — tenta novamente');
+  }
+}
+
+function exportarDados(){
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `calculadora-lucro-backup-${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Ficheiro de backup transferido');
+}
+
+function importarDados(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const novo = JSON.parse(e.target.result);
+      if(!novo.gastos || !novo.entradas || !novo.vendas) throw new Error('formato inválido');
+      state = novo;
+      saveState();
+      showToast('Dados importados com sucesso');
+      render();
+    }catch(err){
+      showToast('Ficheiro inválido — não foi possível importar');
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+// ---- Stock derivation from entradas + vendas ----
+function computeStock(){
+  const stock = {}; // nome -> {qty, custoMedio, totalInvestido}
+  state.entradas.forEach(e=>{
+    if(!stock[e.produto]) stock[e.produto] = {qty:0, valor:0};
+    stock[e.produto].qty += e.qtd;
+    stock[e.produto].valor += e.qtd * e.custoUnit;
+  });
+  state.vendas.forEach(v=>{
+    if(!stock[v.produto]) stock[v.produto] = {qty:0, valor:0};
+    const custoMedioAntes = stock[v.produto].qty > 0 ? (stock[v.produto].valor/stock[v.produto].qty) : v.custoUnit;
+    stock[v.produto].qty -= v.qtd;
+    stock[v.produto].valor -= v.qtd * custoMedioAntes;
+  });
+  return stock;
+}
+
+function custoMedioAtual(produto){
+  const stock = computeStock();
+  const s = stock[produto];
+  if(!s || s.qty <= 0) return null;
+  return s.valor / s.qty;
+}
+
+// ---- Totals ----
+function totals(){
+  const totalGastos = state.gastos.reduce((a,g)=>a+g.valor,0);
+  const totalEntradas = state.entradas.reduce((a,e)=>a+e.qtd*e.custoUnit,0);
+  const totalVendas = state.vendas.reduce((a,v)=>a+v.qtd*v.precoUnit,0);
+  const totalLucro = state.vendas.reduce((a,v)=>a+v.lucro,0);
+  const investidoTotal = totalGastos + totalEntradas;
+  return {totalGastos, totalEntradas, totalVendas, totalLucro, investidoTotal};
+}
+
+function produtosMaisVendidos(){
+  const agrupado = {};
+  state.vendas.forEach(v=>{
+    if(!agrupado[v.produto]) agrupado[v.produto] = {qtd:0, receita:0, lucro:0};
+    agrupado[v.produto].qtd += v.qtd;
+    agrupado[v.produto].receita += v.qtd * v.precoUnit;
+    agrupado[v.produto].lucro += v.lucro;
+  });
+  return Object.entries(agrupado)
+    .map(([produto, dados])=>({produto, ...dados}))
+    .sort((a,b)=> b.qtd - a.qtd);
+}
+
+// ---- Render ----
+function render(){
+  if(!loaded) return;
+  const app = document.getElementById('app');
+  if(currentTab==='resumo') app.innerHTML = renderResumo();
+  else if(currentTab==='gasto') app.innerHTML = renderGasto();
+  else if(currentTab==='entrada') app.innerHTML = renderEntrada();
+  else if(currentTab==='venda') app.innerHTML = renderVenda();
+  else if(currentTab==='stock') app.innerHTML = renderStock();
+  attachHandlers();
+}
+
+function renderResumo(){
+  const t = totals();
+  const recentes = [
+    ...state.gastos.map(g=>({...g, tipo:'gasto', data:g.data})),
+    ...state.entradas.map(e=>({...e, tipo:'entrada', data:e.data})),
+    ...state.vendas.map(v=>({...v, tipo:'venda', data:v.data})),
+  ].sort((a,b)=> b.data.localeCompare(a.data) || (b.id-a.id)).slice(0,8);
+
+  return `
+  <div class="stat-grid">
+    <div class="stat gasto"><div class="label">Investido no total</div><div class="value">${fmtMT(t.investidoTotal)}</div></div>
+    <div class="stat vendas"><div class="label">Total vendido</div><div class="value">${fmtMT(t.totalVendas)}</div></div>
+    <div class="stat lucro"><div class="label">Lucro acumulado</div><div class="value">${fmtMT(t.totalLucro)}</div></div>
+    <div class="stat"><div class="label">Gastos iniciais</div><div class="value">${fmtMT(t.totalGastos)}</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Últimos movimentos</h2>
+    ${recentes.length===0 ? '<div class="empty">Ainda não há registos. Começa por lançar os gastos iniciais.</div>' :
+    `<table><tbody>
+      ${recentes.map(r=>{
+        if(r.tipo==='gasto') return `<tr><td><span class="tag gasto">Gasto</span><br><span style="font-size:12px">${r.desc}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${r.nome||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br>${fmtMT(r.valor)}</td></tr>`;
+        if(r.tipo==='entrada') return `<tr><td><span class="tag entrada">Entrada</span><br><span style="font-size:12px">${r.produto} ×${r.qtd}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${r.nome||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br>${fmtMT(r.qtd*r.custoUnit)}</td></tr>`;
+        return `<tr><td><span class="tag venda">Venda</span><br><span style="font-size:12px">${r.produto} ×${r.qtd}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${r.nome||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br><span class="${r.lucro>=0?'lucro-pos':'lucro-neg'}">${r.lucro>=0?'+':''}${fmtMT(r.lucro)}</span></td></tr>`;
+      }).join('')}
+    </tbody></table>`}
+  </div>
+  <div class="card">
+    <h2>Produtos mais vendidos</h2>
+    ${(()=>{
+      const top = produtosMaisVendidos();
+      if(top.length===0) return '<div class="empty">Ainda não há vendas registadas.</div>';
+      return `<table><thead><tr><th>Produto</th><th style="text-align:right">Qtd</th><th style="text-align:right">Receita</th><th style="text-align:right">Lucro</th></tr></thead><tbody>
+        ${top.slice(0,10).map((p,i)=>`
+          <tr><td>${i===0?'🏆 ':''}${p.produto}</td>
+          <td style="text-align:right">${p.qtd}</td>
+          <td style="text-align:right">${fmtMT(p.receita)}</td>
+          <td style="text-align:right" class="${p.lucro>=0?'lucro-pos':'lucro-neg'}">${p.lucro>=0?'+':''}${fmtMT(p.lucro)}</td></tr>
+        `).join('')}
+      </tbody></table>`;
+    })()}
+  </div>
+  <div class="card">
+    <h2>Cópia de segurança</h2>
+    <p style="font-size:12.5px;color:var(--zinc-3);margin:0 0 10px;">Guarda um ficheiro de backup, ou transfere os dados para outro telemóvel.</p>
+    <button class="secondary" style="width:100%;margin-bottom:8px;" onclick="exportarDados()">⬇ Exportar dados (backup)</button>
+    <label style="margin-top:0;">Importar backup</label>
+    <input type="file" accept="application/json" onchange="importarDados(this)">
+  </div>
+  <p class="foot-note">Os dados ficam guardados apenas neste telemóvel/navegador. Usa "Exportar" regularmente para não perderes o histórico.</p>
+  `;
+}
+
+function renderGasto(){
+  return `
+  <div class="card">
+    <h2>Novo gasto inicial</h2>
+    <label>Descrição</label>
+    <input id="g-desc" placeholder="Ex: Chapas de zinco, barrotes, pregos...">
+    <div class="row2">
+      <div><label>Valor (MT)</label><input id="g-valor" type="number" inputmode="decimal" placeholder="0"></div>
+      <div><label>Data</label><input id="g-data" type="date" value="${todayStr()}"></div>
+    </div>
+    <label>Assinatura (quem registou)</label>
+    <input id="g-nome" placeholder="Nome de quem fez este registo" value="${ultimoNome()}">
+    <button class="primary" onclick="addGasto()">Guardar gasto</button>
+  </div>
+  <div class="card">
+    <h2>Gastos registados (${state.gastos.length})</h2>
+    ${state.gastos.length===0 ? '<div class="empty">Nenhum gasto inicial registado ainda.</div>' :
+    `<table><thead><tr><th>Descrição</th><th>Data</th><th style="text-align:right">Valor</th><th></th></tr></thead><tbody>
+      ${[...state.gastos].reverse().map(g=>`
+        <tr><td>${g.desc}<br><span style="font-size:11px;color:var(--zinc-3)">✍ ${g.nome||'—'}</span></td><td>${fmtDate(g.data)}</td><td style="text-align:right">${fmtMT(g.valor)}</td>
+        <td><button class="del" onclick="delItem('gastos', ${g.id})">✕</button></td></tr>
+      `).join('')}
+    </tbody></table>`}
+  </div>
+  `;
+}
+
+function renderEntrada(){
+  return `
+  <div class="card">
+    <h2>Nova entrada de stock</h2>
+    <label>Produto</label>
+    <input id="e-produto" placeholder="Ex: Capinha iPhone, Fone bluetooth...">
+    <div class="row2">
+      <div><label>Quantidade</label><input id="e-qtd" type="number" inputmode="numeric" placeholder="0"></div>
+      <div><label>Custo unitário (MT)</label><input id="e-custo" type="number" inputmode="decimal" placeholder="0"></div>
+    </div>
+    <label>Data</label>
+    <input id="e-data" type="date" value="${todayStr()}">
+    <label>Assinatura (quem registou)</label>
+    <input id="e-nome" placeholder="Nome de quem fez este registo" value="${ultimoNome()}">
+    <div class="preview" id="e-preview"></div>
+    <button class="primary" onclick="addEntrada()">Guardar entrada</button>
+  </div>
+  <div class="card">
+    <h2>Entradas registadas (${state.entradas.length})</h2>
+    ${state.entradas.length===0 ? '<div class="empty">Nenhuma entrada de stock ainda.</div>' :
+    `<table><thead><tr><th>Produto</th><th>Data</th><th style="text-align:right">Custo total</th><th></th></tr></thead><tbody>
+      ${[...state.entradas].reverse().map(e=>`
+        <tr><td>${e.produto}<br><span style="font-size:11px;color:var(--zinc-3)">${e.qtd} un × ${fmtMT(e.custoUnit)} · ✍ ${e.nome||'—'}</span></td>
+        <td>${fmtDate(e.data)}</td><td style="text-align:right">${fmtMT(e.qtd*e.custoUnit)}</td>
+        <td><button class="del" onclick="delItem('entradas', ${e.id})">✕</button></td></tr>
+      `).join('')}
+    </tbody></table>`}
+  </div>
+  `;
+}
+
+function renderVenda(){
+  const stock = computeStock();
+  const produtos = Object.keys(stock).filter(p=>stock[p].qty>0);
+  return `
+  <div class="card">
+    <h2>Nova venda</h2>
+    <label>Produto</label>
+    <input id="v-produto" list="lista-produtos" placeholder="Escreve ou escolhe da lista">
+    <datalist id="lista-produtos">
+      ${produtos.map(p=>`<option value="${p}">`).join('')}
+    </datalist>
+    <div class="row2">
+      <div><label>Quantidade vendida</label><input id="v-qtd" type="number" inputmode="numeric" placeholder="0"></div>
+      <div><label>Preço de venda unit. (MT)</label><input id="v-preco" type="number" inputmode="decimal" placeholder="0"></div>
+    </div>
+    <label>Data</label>
+    <input id="v-data" type="date" value="${todayStr()}">
+    <label>Assinatura (quem registou)</label>
+    <input id="v-nome" placeholder="Nome de quem fez esta venda" value="${ultimoNome()}">
+    <div class="preview" id="v-preview">Escolhe o produto e a quantidade para ver o lucro calculado automaticamente.</div>
+    <button class="primary" onclick="addVenda()">Registar venda</button>
+  </div>
+  <div class="card">
+    <h2>Mais vendidos</h2>
+    ${(()=>{
+      const top = produtosMaisVendidos();
+      if(top.length===0) return '<div class="empty">Ainda não há vendas registadas.</div>';
+      return `<table><thead><tr><th>Produto</th><th style="text-align:right">Qtd</th><th style="text-align:right">Lucro</th></tr></thead><tbody>
+        ${top.slice(0,5).map((p,i)=>`
+          <tr><td>${i===0?'🏆 ':''}${p.produto}</td>
+          <td style="text-align:right">${p.qtd}</td>
+          <td style="text-align:right" class="${p.lucro>=0?'lucro-pos':'lucro-neg'}">${p.lucro>=0?'+':''}${fmtMT(p.lucro)}</td></tr>
+        `).join('')}
+      </tbody></table>`;
+    })()}
+  </div>
+  <div class="card">
+    <h2>Vendas registadas (${state.vendas.length})</h2>
+    ${state.vendas.length===0 ? '<div class="empty">Nenhuma venda registada ainda.</div>' :
+    `<table><thead><tr><th>Produto</th><th>Data</th><th style="text-align:right">Lucro</th><th></th></tr></thead><tbody>
+      ${[...state.vendas].reverse().map(v=>`
+        <tr><td>${v.produto}<br><span style="font-size:11px;color:var(--zinc-3)">${v.qtd} un × ${fmtMT(v.precoUnit)} · ✍ ${v.nome||'—'}</span></td>
+        <td>${fmtDate(v.data)}</td><td style="text-align:right" class="${v.lucro>=0?'lucro-pos':'lucro-neg'}">${v.lucro>=0?'+':''}${fmtMT(v.lucro)}</td>
+        <td><button class="del" onclick="delItem('vendas', ${v.id})">✕</button></td></tr>
+      `).join('')}
+    </tbody></table>`}
+  </div>
+  `;
+}
+
+function renderStock(){
+  const stock = computeStock();
+  const nomes = Object.keys(stock).sort();
+  return `
+  <div class="card">
+    <h2>Stock actual</h2>
+    ${nomes.length===0 ? '<div class="empty">Regista uma entrada de stock para começares a ver aqui.</div>' :
+    nomes.map(n=>{
+      const s = stock[n];
+      const custoMedio = s.qty>0 ? s.valor/s.qty : 0;
+      return `<div class="stock-row">
+        <div>
+          <div class="stock-name">${n}</div>
+          <div class="stock-qty">custo médio ${fmtMT(custoMedio)}/un</div>
+        </div>
+        <div style="text-align:right">
+          <div class="${s.qty<=2?'low':''}" style="font-weight:700">${s.qty} un</div>
+          <div class="stock-qty">${fmtMT(Math.max(s.valor,0))}</div>
+        </div>
+      </div>`;
+    }).join('')
+    }
+  </div>
+  <p class="foot-note">O stock é calculado automaticamente a partir das entradas menos as vendas registadas. Quantidades em vermelho estão a acabar.</p>
+  `;
+}
+
+// ---- Handlers ----
+function attachHandlers(){
+  const eProduto = document.getElementById('e-produto');
+  const eQtd = document.getElementById('e-qtd');
+  const eCusto = document.getElementById('e-custo');
+  if(eQtd && eCusto){
+    [eQtd, eCusto].forEach(el=>el.addEventListener('input', updateEntradaPreview));
+  }
+  const vProduto = document.getElementById('v-produto');
+  const vQtd = document.getElementById('v-qtd');
+  const vPreco = document.getElementById('v-preco');
+  if(vProduto && vQtd && vPreco){
+    [vProduto, vQtd, vPreco].forEach(el=>el.addEventListener('input', updateVendaPreview));
+  }
+}
+
+function updateEntradaPreview(){
+  const qtd = parseFloat(document.getElementById('e-qtd').value)||0;
+  const custo = parseFloat(document.getElementById('e-custo').value)||0;
+  document.getElementById('e-preview').innerHTML = `Custo total desta entrada: <b>${fmtMT(qtd*custo)}</b>`;
+}
+
+function updateVendaPreview(){
+  const produto = document.getElementById('v-produto').value.trim();
+  const qtd = parseFloat(document.getElementById('v-qtd').value)||0;
+  const preco = parseFloat(document.getElementById('v-preco').value)||0;
+  const el = document.getElementById('v-preview');
+  if(!produto || qtd<=0){
+    el.innerHTML = 'Escolhe o produto e a quantidade para ver o lucro calculado automaticamente.';
+    return;
+  }
+  const custoMedio = custoMedioAtual(produto);
+  if(custoMedio===null){
+    el.innerHTML = `<b>Aviso:</b> não há stock registado para "${produto}". O lucro vai assumir custo 0 — regista primeiro a entrada deste produto para um cálculo correcto.`;
+    return;
+  }
+  const lucro = qtd*(preco-custoMedio);
+  el.innerHTML = `Custo médio: <b>${fmtMT(custoMedio)}</b>/un &nbsp;→&nbsp; Lucro desta venda: <b class="${lucro>=0?'lucro-pos':'lucro-neg'}">${lucro>=0?'+':''}${fmtMT(lucro)}</b>`;
+}
+
+function ultimoNome(){
+  try{
+    return localStorage.getItem('calculadora-lucro-ultimo-nome') || '';
+  }catch(e){ return ''; }
+}
+function guardarUltimoNome(nome){
+  try{
+    if(nome) localStorage.setItem('calculadora-lucro-ultimo-nome', nome);
+  }catch(e){}
+}
+
+function addGasto(){
+  const desc = document.getElementById('g-desc').value.trim();
+  const valor = parseFloat(document.getElementById('g-valor').value);
+  const data = document.getElementById('g-data').value || todayStr();
+  const nome = document.getElementById('g-nome').value.trim();
+  if(!desc || !valor || valor<=0){ showToast('Preenche a descrição e o valor'); return; }
+  state.gastos.push({id:Date.now(), desc, valor, data, nome});
+  guardarUltimoNome(nome);
+  saveState();
+  showToast('Gasto guardado');
+  render();
+}
+
+function addEntrada(){
+  const produto = document.getElementById('e-produto').value.trim();
+  const qtd = parseFloat(document.getElementById('e-qtd').value);
+  const custoUnit = parseFloat(document.getElementById('e-custo').value);
+  const data = document.getElementById('e-data').value || todayStr();
+  const nome = document.getElementById('e-nome').value.trim();
+  if(!produto || !qtd || qtd<=0 || custoUnit===undefined || isNaN(custoUnit) || custoUnit<0){
+    showToast('Preenche produto, quantidade e custo'); return;
+  }
+  state.entradas.push({id:Date.now(), produto, qtd, custoUnit, data, nome});
+  guardarUltimoNome(nome);
+  saveState();
+  showToast('Entrada guardada');
+  render();
+}
+
+function addVenda(){
+  const produto = document.getElementById('v-produto').value.trim();
+  const qtd = parseFloat(document.getElementById('v-qtd').value);
+  const precoUnit = parseFloat(document.getElementById('v-preco').value);
+  const data = document.getElementById('v-data').value || todayStr();
+  const nome = document.getElementById('v-nome').value.trim();
+  if(!produto || !qtd || qtd<=0 || precoUnit===undefined || isNaN(precoUnit) || precoUnit<0){
+    showToast('Preenche produto, quantidade e preço'); return;
+  }
+  const stock = computeStock();
+  const disponivel = stock[produto] ? stock[produto].qty : 0;
+  if(qtd > disponivel){
+    showToast(`Só há ${disponivel} un de "${produto}" em stock`);
+    return;
+  }
+  const custoMedio = custoMedioAtual(produto) || 0;
+  const lucro = qtd*(precoUnit-custoMedio);
+  state.vendas.push({id:Date.now(), produto, qtd, precoUnit, custoUnit:custoMedio, lucro, data, nome});
+  guardarUltimoNome(nome);
+  saveState();
+  showToast('Venda registada');
+  render();
+}
+
+function delItem(colecao, id){
+  state[colecao] = state[colecao].filter(x=>x.id!==id);
+  saveState();
+  render();
+}
+
+document.getElementById('tabs').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  currentTab = btn.dataset.tab;
+  render();
+});
+
+loadState();
+</script>
+</body>
+</html>
