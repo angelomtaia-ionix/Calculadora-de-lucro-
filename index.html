@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Calculadora de Lucro</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
@@ -243,6 +244,14 @@
   <p>Telefones &amp; acessórios</p>
 </div>
 
+<div id="sync-bar" style="background:#fff;border-bottom:1px solid var(--line);padding:8px 16px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+  <span id="sync-status">🔴 Não sincronizado — só neste telemóvel</span>
+  <button id="sync-btn" onclick="signIn()" style="background:var(--teal);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;">Entrar com Google</button>
+</div>
+<div style="background:#FFF9EA;padding:6px 16px;font-size:11px;color:#8A6A12;text-align:center;">
+  🔒 Cada conta Google vê só os seus próprios dados — nada é partilhado com outros utilizadores.
+</div>
+
 <nav id="tabs">
   <button data-tab="resumo" class="active">Resumo</button>
   <button data-tab="gasto">Gastos&nbsp;iniciais</button>
@@ -264,9 +273,162 @@ window.addEventListener('error', function(e){
   }
 });
 const STORE_KEY = 'ribaue-banca-v1';
-let state = { gastos: [], entradas: [], vendas: [] };
+let state = { gastos: [], entradas: [], vendas: [], updatedAt: 0 };
 let currentTab = 'resumo';
 let loaded = false;
+
+// ---- Sincronização com Google Drive ----
+const GOOGLE_CLIENT_ID = '519082885918-iblstrjm2cqrur3j2ac38vqo2svgdb3m.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILENAME = 'calculadora-lucro-dados.json';
+let tokenClient = null;
+let accessToken = null;
+let driveFileId = null;
+let userEmail = null;
+let syncTimer = null;
+
+function initGoogleAuth(){
+  if(typeof google === 'undefined' || !google.accounts){
+    // biblioteca do Google ainda não carregou, tenta de novo em breve
+    setTimeout(initGoogleAuth, 500);
+    return;
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: DRIVE_SCOPE,
+    callback: onTokenResponse
+  });
+}
+
+function signIn(){
+  if(!tokenClient){ showToast('A carregar login do Google, tenta em 2 segundos'); return; }
+  tokenClient.requestAccessToken();
+}
+
+function signOut(){
+  if(accessToken){
+    google.accounts.oauth2.revoke(accessToken, ()=>{});
+  }
+  accessToken = null;
+  driveFileId = null;
+  userEmail = null;
+  if(syncTimer){ clearInterval(syncTimer); syncTimer = null; }
+  atualizarBarraSync();
+  showToast('Sessão terminada');
+}
+
+function onTokenResponse(response){
+  if(response.error){
+    showToast('Não foi possível entrar com Google');
+    return;
+  }
+  accessToken = response.access_token;
+  document.getElementById('sync-status').textContent = '🟡 A ligar ao Drive...';
+  fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  }).then(r=>r.json()).then(info=>{
+    userEmail = info.email || 'conta Google';
+    ensureDriveFile();
+  }).catch(()=>{
+    ensureDriveFile();
+  });
+}
+
+function ensureDriveFile(){
+  const q = encodeURIComponent(`name='${DRIVE_FILENAME}' and trashed=false`);
+  fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  })
+  .then(r=>r.json())
+  .then(data=>{
+    if(data.files && data.files.length > 0){
+      driveFileId = data.files[0].id;
+      pullFromDrive(true);
+    } else {
+      criarFicheiroDrive();
+    }
+  })
+  .catch(()=>{ showToast('Erro ao ligar ao Drive'); });
+}
+
+function criarFicheiroDrive(){
+  const metadata = { name: DRIVE_FILENAME, mimeType: 'application/json' };
+  const boundary = '-------calc-lucro-boundary';
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(state)}\r\n` +
+    `--${boundary}--`;
+  fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + accessToken,
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body: body
+  })
+  .then(r=>r.json())
+  .then(data=>{
+    driveFileId = data.id;
+    iniciarSincronizacaoPeriodica();
+    atualizarBarraSync();
+    showToast('Ligado ao Google Drive');
+  })
+  .catch(()=>{ showToast('Erro ao criar ficheiro no Drive'); });
+}
+
+function pullFromDrive(silencioso){
+  if(!accessToken || !driveFileId) return;
+  fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`, {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  })
+  .then(r=>r.json())
+  .then(remoto=>{
+    if(remoto && typeof remoto.updatedAt === 'number' && remoto.updatedAt > (state.updatedAt||0)){
+      state = remoto;
+      try{ localStorage.setItem('calculadora-lucro-estado', JSON.stringify(state)); }catch(e){}
+      render();
+      if(!silencioso) showToast('Dados actualizados a partir do Drive');
+    }
+    iniciarSincronizacaoPeriodica();
+    atualizarBarraSync();
+  })
+  .catch(()=>{
+    iniciarSincronizacaoPeriodica();
+    atualizarBarraSync();
+  });
+}
+
+function pushToDrive(){
+  if(!accessToken || !driveFileId) return;
+  fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: 'Bearer ' + accessToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(state)
+  }).catch(()=>{ showToast('Não foi possível sincronizar agora'); });
+}
+
+function iniciarSincronizacaoPeriodica(){
+  if(syncTimer) return;
+  syncTimer = setInterval(()=>pullFromDrive(true), 15000);
+}
+
+function atualizarBarraSync(){
+  const status = document.getElementById('sync-status');
+  const btn = document.getElementById('sync-btn');
+  if(!status || !btn) return;
+  if(accessToken && driveFileId){
+    status.textContent = `🟢 Sincronizado${userEmail ? ' — ' + userEmail : ''}`;
+    btn.textContent = 'Sair';
+    btn.onclick = signOut;
+  } else {
+    status.textContent = '🔴 Não sincronizado — só neste telemóvel';
+    btn.textContent = 'Entrar com Google';
+    btn.onclick = signIn;
+  }
+}
 
 function fmtMT(n){
   return (Math.round(n*100)/100).toLocaleString('pt-PT') + ' MT';
@@ -299,19 +461,25 @@ function loadState(){
     }
     if(raw){
       state = JSON.parse(raw);
+      if(typeof state.updatedAt !== 'number') state.updatedAt = 0;
     }
   }catch(e){
     // no data yet
   }
   loaded = true;
   render();
+  initGoogleAuth();
 }
 
 function saveState(){
+  state.updatedAt = Date.now();
   try{
     localStorage.setItem('calculadora-lucro-estado', JSON.stringify(state));
   }catch(e){
     showToast('Erro ao guardar — tenta novamente');
+  }
+  if(accessToken && driveFileId){
+    pushToDrive();
   }
 }
 
