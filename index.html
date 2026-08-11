@@ -287,21 +287,38 @@ let driveFileId = null;
 let userEmail = null;
 let syncTimer = null;
 
+let googleInitTentativas = 0;
 function initGoogleAuth(){
+  const status = document.getElementById('sync-status');
   if(typeof google === 'undefined' || !google.accounts){
-    // biblioteca do Google ainda não carregou, tenta de novo em breve
+    googleInitTentativas++;
+    if(status) status.textContent = '⚪ A preparar login do Google...';
+    if(googleInitTentativas > 20){
+      if(status) status.textContent = '🔴 Não foi possível carregar o sistema de login do Google (verifica a internet e recarrega a página)';
+      return;
+    }
     setTimeout(initGoogleAuth, 500);
     return;
   }
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: GOOGLE_CLIENT_ID,
-    scope: DRIVE_SCOPE,
-    callback: onTokenResponse
-  });
+  try{
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: onTokenResponse
+    });
+    if(status) status.textContent = '🔴 Não sincronizado — só neste telemóvel';
+  }catch(e){
+    if(status) status.textContent = '🔴 Erro a preparar login: ' + e.message;
+  }
 }
 
 function signIn(){
-  if(!tokenClient){ showToast('A carregar login do Google, tenta em 2 segundos'); return; }
+  const status = document.getElementById('sync-status');
+  if(!tokenClient){
+    if(status) status.textContent = '🟡 Sistema de login ainda não está pronto, aguarda...';
+    return;
+  }
+  if(status) status.textContent = '🟡 A abrir login do Google...';
   tokenClient.requestAccessToken();
 }
 
