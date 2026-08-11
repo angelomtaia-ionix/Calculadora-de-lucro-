@@ -319,7 +319,7 @@ function signOut(){
 
 function onTokenResponse(response){
   if(response.error){
-    showToast('Não foi possível entrar com Google');
+    document.getElementById('sync-status').textContent = '🔴 Erro no login: ' + response.error;
     return;
   }
   accessToken = response.access_token;
@@ -339,7 +339,12 @@ function ensureDriveFile(){
   fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
     headers: { Authorization: 'Bearer ' + accessToken }
   })
-  .then(r=>r.json())
+  .then(r=>{
+    if(!r.ok){
+      return r.json().then(err=>{ throw new Error('Drive list ' + r.status + ': ' + JSON.stringify(err.error && err.error.message || err)); });
+    }
+    return r.json();
+  })
   .then(data=>{
     if(data.files && data.files.length > 0){
       driveFileId = data.files[0].id;
@@ -348,7 +353,9 @@ function ensureDriveFile(){
       criarFicheiroDrive();
     }
   })
-  .catch(()=>{ showToast('Erro ao ligar ao Drive'); });
+  .catch((e)=>{
+    document.getElementById('sync-status').textContent = '🔴 Erro Drive: ' + (e.message || e);
+  });
 }
 
 function criarFicheiroDrive(){
@@ -366,14 +373,21 @@ function criarFicheiroDrive(){
     },
     body: body
   })
-  .then(r=>r.json())
+  .then(r=>{
+    if(!r.ok){
+      return r.json().then(err=>{ throw new Error('Criar ficheiro ' + r.status + ': ' + JSON.stringify(err.error && err.error.message || err)); });
+    }
+    return r.json();
+  })
   .then(data=>{
     driveFileId = data.id;
     iniciarSincronizacaoPeriodica();
     atualizarBarraSync();
     showToast('Ligado ao Google Drive');
   })
-  .catch(()=>{ showToast('Erro ao criar ficheiro no Drive'); });
+  .catch((e)=>{
+    document.getElementById('sync-status').textContent = '🔴 Erro Drive: ' + (e.message || e);
+  });
 }
 
 function pullFromDrive(silencioso){
