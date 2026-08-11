@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://accounts.google.com https://www.googleapis.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; img-src 'self' data:; object-src 'none'; base-uri 'self';">
 <title>Calculadora de Lucro</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -258,6 +259,7 @@
   <button data-tab="entrada">Entrada</button>
   <button data-tab="venda">Venda</button>
   <button data-tab="stock">Stock</button>
+  <button data-tab="ajuda">Ajuda</button>
 </nav>
 
 <main id="app">Carregando…</main>
@@ -461,6 +463,16 @@ function atualizarBarraSync(){
   }
 }
 
+function esc(texto){
+  if(texto === null || texto === undefined) return '';
+  return String(texto)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function fmtMT(n){
   return (Math.round(n*100)/100).toLocaleString('pt-PT') + ' MT';
 }
@@ -601,6 +613,7 @@ function render(){
   else if(currentTab==='entrada') app.innerHTML = renderEntrada();
   else if(currentTab==='venda') app.innerHTML = renderVenda();
   else if(currentTab==='stock') app.innerHTML = renderStock();
+  else if(currentTab==='ajuda') app.innerHTML = renderAjuda();
   attachHandlers();
 }
 
@@ -625,9 +638,9 @@ function renderResumo(){
     ${recentes.length===0 ? '<div class="empty">Ainda não há registos. Começa por lançar os gastos iniciais.</div>' :
     `<table><tbody>
       ${recentes.map(r=>{
-        if(r.tipo==='gasto') return `<tr><td><span class="tag gasto">Gasto</span><br><span style="font-size:12px">${r.desc}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${r.nome||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br>${fmtMT(r.valor)}</td></tr>`;
-        if(r.tipo==='entrada') return `<tr><td><span class="tag entrada">Entrada</span><br><span style="font-size:12px">${r.produto} ×${r.qtd}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${r.nome||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br>${fmtMT(r.qtd*r.custoUnit)}</td></tr>`;
-        return `<tr><td><span class="tag venda">Venda</span><br><span style="font-size:12px">${r.produto} ×${r.qtd}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${r.nome||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br><span class="${r.lucro>=0?'lucro-pos':'lucro-neg'}">${r.lucro>=0?'+':''}${fmtMT(r.lucro)}</span></td></tr>`;
+        if(r.tipo==='gasto') return `<tr><td><span class="tag gasto">Gasto</span><br><span style="font-size:12px">${esc(r.desc)}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${esc(r.nome)||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br>${fmtMT(r.valor)}</td></tr>`;
+        if(r.tipo==='entrada') return `<tr><td><span class="tag entrada">Entrada</span><br><span style="font-size:12px">${esc(r.produto)} ×${r.qtd}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${esc(r.nome)||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br>${fmtMT(r.qtd*r.custoUnit)}</td></tr>`;
+        return `<tr><td><span class="tag venda">Venda</span><br><span style="font-size:12px">${esc(r.produto)} ×${r.qtd}</span><br><span style="font-size:10.5px;color:var(--zinc-3)">✍ ${esc(r.nome)||'—'}</span></td><td style="text-align:right">${fmtDate(r.data)}<br><span class="${r.lucro>=0?'lucro-pos':'lucro-neg'}">${r.lucro>=0?'+':''}${fmtMT(r.lucro)}</span></td></tr>`;
       }).join('')}
     </tbody></table>`}
   </div>
@@ -638,7 +651,7 @@ function renderResumo(){
       if(top.length===0) return '<div class="empty">Ainda não há vendas registadas.</div>';
       return `<table><thead><tr><th>Produto</th><th style="text-align:right">Qtd</th><th style="text-align:right">Receita</th><th style="text-align:right">Lucro</th></tr></thead><tbody>
         ${top.slice(0,10).map((p,i)=>`
-          <tr><td>${i===0?'🏆 ':''}${p.produto}</td>
+          <tr><td>${i===0?'🏆 ':''}${esc(p.produto)}</td>
           <td style="text-align:right">${p.qtd}</td>
           <td style="text-align:right">${fmtMT(p.receita)}</td>
           <td style="text-align:right" class="${p.lucro>=0?'lucro-pos':'lucro-neg'}">${p.lucro>=0?'+':''}${fmtMT(p.lucro)}</td></tr>
@@ -667,8 +680,8 @@ function renderGasto(){
       <div><label>Valor (MT)</label><input id="g-valor" type="number" inputmode="decimal" placeholder="0"></div>
       <div><label>Data</label><input id="g-data" type="date" value="${todayStr()}"></div>
     </div>
-    <label>Assinatura (quem registou)</label>
-    <input id="g-nome" placeholder="Nome de quem fez este registo" value="${ultimoNome()}">
+    <label>Assinatura (quem registou) *</label>
+    <input id="g-nome" placeholder="Nome de quem fez este registo" value="${esc(ultimoNome())}" required>
     <button class="primary" onclick="addGasto()">Guardar gasto</button>
   </div>
   <div class="card">
@@ -676,7 +689,7 @@ function renderGasto(){
     ${state.gastos.length===0 ? '<div class="empty">Nenhum gasto inicial registado ainda.</div>' :
     `<table><thead><tr><th>Descrição</th><th>Data</th><th style="text-align:right">Valor</th><th></th></tr></thead><tbody>
       ${[...state.gastos].reverse().map(g=>`
-        <tr><td>${g.desc}<br><span style="font-size:11px;color:var(--zinc-3)">✍ ${g.nome||'—'}</span></td><td>${fmtDate(g.data)}</td><td style="text-align:right">${fmtMT(g.valor)}</td>
+        <tr><td>${esc(g.desc)}<br><span style="font-size:11px;color:var(--zinc-3)">✍ ${esc(g.nome)||'—'}</span></td><td>${fmtDate(g.data)}</td><td style="text-align:right">${fmtMT(g.valor)}</td>
         <td><button class="del" onclick="delItem('gastos', ${g.id})">✕</button></td></tr>
       `).join('')}
     </tbody></table>`}
@@ -696,8 +709,8 @@ function renderEntrada(){
     </div>
     <label>Data</label>
     <input id="e-data" type="date" value="${todayStr()}">
-    <label>Assinatura (quem registou)</label>
-    <input id="e-nome" placeholder="Nome de quem fez este registo" value="${ultimoNome()}">
+    <label>Assinatura (quem registou) *</label>
+    <input id="e-nome" placeholder="Nome de quem fez este registo" value="${esc(ultimoNome())}" required>
     <div class="preview" id="e-preview"></div>
     <button class="primary" onclick="addEntrada()">Guardar entrada</button>
   </div>
@@ -706,7 +719,7 @@ function renderEntrada(){
     ${state.entradas.length===0 ? '<div class="empty">Nenhuma entrada de stock ainda.</div>' :
     `<table><thead><tr><th>Produto</th><th>Data</th><th style="text-align:right">Custo total</th><th></th></tr></thead><tbody>
       ${[...state.entradas].reverse().map(e=>`
-        <tr><td>${e.produto}<br><span style="font-size:11px;color:var(--zinc-3)">${e.qtd} un × ${fmtMT(e.custoUnit)} · ✍ ${e.nome||'—'}</span></td>
+        <tr><td>${esc(e.produto)}<br><span style="font-size:11px;color:var(--zinc-3)">${e.qtd} un × ${fmtMT(e.custoUnit)} · ✍ ${esc(e.nome)||'—'}</span></td>
         <td>${fmtDate(e.data)}</td><td style="text-align:right">${fmtMT(e.qtd*e.custoUnit)}</td>
         <td><button class="del" onclick="delItem('entradas', ${e.id})">✕</button></td></tr>
       `).join('')}
@@ -724,7 +737,7 @@ function renderVenda(){
     <label>Produto</label>
     <input id="v-produto" list="lista-produtos" placeholder="Escreve ou escolhe da lista">
     <datalist id="lista-produtos">
-      ${produtos.map(p=>`<option value="${p}">`).join('')}
+      ${produtos.map(p=>`<option value="${esc(p)}">`).join('')}
     </datalist>
     <div class="row2">
       <div><label>Quantidade vendida</label><input id="v-qtd" type="number" inputmode="numeric" placeholder="0"></div>
@@ -732,8 +745,8 @@ function renderVenda(){
     </div>
     <label>Data</label>
     <input id="v-data" type="date" value="${todayStr()}">
-    <label>Assinatura (quem registou)</label>
-    <input id="v-nome" placeholder="Nome de quem fez esta venda" value="${ultimoNome()}">
+    <label>Assinatura (quem registou) *</label>
+    <input id="v-nome" placeholder="Nome de quem fez esta venda" value="${esc(ultimoNome())}" required>
     <div class="preview" id="v-preview">Escolhe o produto e a quantidade para ver o lucro calculado automaticamente.</div>
     <button class="primary" onclick="addVenda()">Registar venda</button>
   </div>
@@ -744,7 +757,7 @@ function renderVenda(){
       if(top.length===0) return '<div class="empty">Ainda não há vendas registadas.</div>';
       return `<table><thead><tr><th>Produto</th><th style="text-align:right">Qtd</th><th style="text-align:right">Lucro</th></tr></thead><tbody>
         ${top.slice(0,5).map((p,i)=>`
-          <tr><td>${i===0?'🏆 ':''}${p.produto}</td>
+          <tr><td>${i===0?'🏆 ':''}${esc(p.produto)}</td>
           <td style="text-align:right">${p.qtd}</td>
           <td style="text-align:right" class="${p.lucro>=0?'lucro-pos':'lucro-neg'}">${p.lucro>=0?'+':''}${fmtMT(p.lucro)}</td></tr>
         `).join('')}
@@ -756,7 +769,7 @@ function renderVenda(){
     ${state.vendas.length===0 ? '<div class="empty">Nenhuma venda registada ainda.</div>' :
     `<table><thead><tr><th>Produto</th><th>Data</th><th style="text-align:right">Lucro</th><th></th></tr></thead><tbody>
       ${[...state.vendas].reverse().map(v=>`
-        <tr><td>${v.produto}<br><span style="font-size:11px;color:var(--zinc-3)">${v.qtd} un × ${fmtMT(v.precoUnit)} · ✍ ${v.nome||'—'}</span></td>
+        <tr><td>${esc(v.produto)}<br><span style="font-size:11px;color:var(--zinc-3)">${v.qtd} un × ${fmtMT(v.precoUnit)} · ✍ ${esc(v.nome)||'—'}</span></td>
         <td>${fmtDate(v.data)}</td><td style="text-align:right" class="${v.lucro>=0?'lucro-pos':'lucro-neg'}">${v.lucro>=0?'+':''}${fmtMT(v.lucro)}</td>
         <td><button class="del" onclick="delItem('vendas', ${v.id})">✕</button></td></tr>
       `).join('')}
@@ -777,7 +790,7 @@ function renderStock(){
       const custoMedio = s.qty>0 ? s.valor/s.qty : 0;
       return `<div class="stock-row">
         <div>
-          <div class="stock-name">${n}</div>
+          <div class="stock-name">${esc(n)}</div>
           <div class="stock-qty">custo médio ${fmtMT(custoMedio)}/un</div>
         </div>
         <div style="text-align:right">
@@ -789,6 +802,63 @@ function renderStock(){
     }
   </div>
   <p class="foot-note">O stock é calculado automaticamente a partir das entradas menos as vendas registadas. Quantidades em vermelho estão a acabar.</p>
+  `;
+}
+
+function renderAjuda(){
+  return `
+  <div class="card">
+    <h2>Como usar a Calculadora de Lucro</h2>
+    <p style="font-size:13.5px;line-height:1.6;">Guia rápido de cada parte da app.</p>
+  </div>
+
+  <div class="card">
+    <h2>📋 Resumo</h2>
+    <p style="font-size:13px;line-height:1.6;">Mostra os totais gerais: quanto investiste, quanto vendeste, e o lucro acumulado. Também mostra os últimos movimentos e os produtos mais vendidos.</p>
+  </div>
+
+  <div class="card">
+    <h2>💰 Gastos iniciais</h2>
+    <p style="font-size:13px;line-height:1.6;">Regista aqui despesas de arranque que não são produtos para vender — por exemplo, materiais da banca (chapas, barrotes, pregos), ou outras despesas únicas.</p>
+  </div>
+
+  <div class="card">
+    <h2>📦 Entrada</h2>
+    <p style="font-size:13px;line-height:1.6;">Sempre que comprares stock novo (telefones, capinhas, fones, etc.), regista aqui: produto, quantidade e quanto pagaste por unidade. Isto actualiza o Stock automaticamente.</p>
+  </div>
+
+  <div class="card">
+    <h2>🛒 Venda</h2>
+    <p style="font-size:13px;line-height:1.6;">Regista cada venda: produto, quantidade e preço de venda. A app calcula o lucro sozinha, usando o custo médio desse produto.</p>
+  </div>
+
+  <div class="card">
+    <h2>📊 Stock</h2>
+    <p style="font-size:13px;line-height:1.6;">Mostra quanto tens de cada produto neste momento, calculado automaticamente (entradas menos vendas). Quantidades a vermelho estão a acabar (2 unidades ou menos).</p>
+  </div>
+
+  <div class="card">
+    <h2>✍ Assinatura</h2>
+    <p style="font-size:13px;line-height:1.6;">Cada registo pede o nome de quem o fez — útil quando mais do que uma pessoa usa a mesma app, para saberes sempre quem registou o quê.</p>
+  </div>
+
+  <div class="card">
+    <h2>🔄 Sincronização com Google Drive</h2>
+    <p style="font-size:13px;line-height:1.6;">Toca em "Entrar com Google" no topo para guardares os teus dados também no Google Drive, e sincronizares entre vários telemóveis com a mesma conta. Sem entrares, os dados ficam só neste telemóvel/navegador.</p>
+    <p style="font-size:13px;line-height:1.6;">🔒 Cada conta Google só vê os seus próprios dados — nada é partilhado com outras contas.</p>
+  </div>
+
+  <div class="card">
+    <h2>💾 Cópia de segurança</h2>
+    <p style="font-size:13px;line-height:1.6;">No Resumo, usa "Exportar dados" para guardares um ficheiro de backup, e "Importar" para o recuperares ou passares para outro telemóvel.</p>
+  </div>
+
+  <div class="card">
+    <h2>❓ Problemas comuns</h2>
+    <p style="font-size:13px;line-height:1.6;"><b>App presa em "Carregando...":</b> tenta abrir numa aba anónima, ou limpa o cache do navegador.</p>
+    <p style="font-size:13px;line-height:1.6;"><b>Aviso "Google não verificou esta app":</b> é normal em apps pequenas — toca em "Avançado" → "Aceder mesmo assim".</p>
+    <p style="font-size:13px;line-height:1.6;"><b>Sincronização não aparece no outro telemóvel:</b> confirma que entraste com a mesma conta Google nos dois aparelhos, e aguarda até 15 segundos.</p>
+  </div>
   `;
 }
 
@@ -825,7 +895,7 @@ function updateVendaPreview(){
   }
   const custoMedio = custoMedioAtual(produto);
   if(custoMedio===null){
-    el.innerHTML = `<b>Aviso:</b> não há stock registado para "${produto}". O lucro vai assumir custo 0 — regista primeiro a entrada deste produto para um cálculo correcto.`;
+    el.innerHTML = `<b>Aviso:</b> não há stock registado para "${esc(produto)}". O lucro vai assumir custo 0 — regista primeiro a entrada deste produto para um cálculo correcto.`;
     return;
   }
   const lucro = qtd*(preco-custoMedio);
@@ -849,6 +919,7 @@ function addGasto(){
   const data = document.getElementById('g-data').value || todayStr();
   const nome = document.getElementById('g-nome').value.trim();
   if(!desc || !valor || valor<=0){ showToast('Preenche a descrição e o valor'); return; }
+  if(!nome){ showToast('A assinatura (nome de quem registou) é obrigatória'); return; }
   state.gastos.push({id:Date.now(), desc, valor, data, nome});
   guardarUltimoNome(nome);
   saveState();
@@ -865,6 +936,7 @@ function addEntrada(){
   if(!produto || !qtd || qtd<=0 || custoUnit===undefined || isNaN(custoUnit) || custoUnit<0){
     showToast('Preenche produto, quantidade e custo'); return;
   }
+  if(!nome){ showToast('A assinatura (nome de quem registou) é obrigatória'); return; }
   state.entradas.push({id:Date.now(), produto, qtd, custoUnit, data, nome});
   guardarUltimoNome(nome);
   saveState();
@@ -881,6 +953,7 @@ function addVenda(){
   if(!produto || !qtd || qtd<=0 || precoUnit===undefined || isNaN(precoUnit) || precoUnit<0){
     showToast('Preenche produto, quantidade e preço'); return;
   }
+  if(!nome){ showToast('A assinatura (nome de quem registou) é obrigatória'); return; }
   const stock = computeStock();
   const disponivel = stock[produto] ? stock[produto].qty : 0;
   if(qtd > disponivel){
