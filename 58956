@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Calculadora de Lucro</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
@@ -243,6 +244,14 @@
   <p>Telefones &amp; acessórios</p>
 </div>
 
+<div id="sync-bar" style="background:#fff;border-bottom:1px solid var(--line);padding:8px 16px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+  <span id="sync-status">🔴 Não sincronizado — só neste telemóvel</span>
+  <button id="sync-btn" onclick="signIn()" style="background:var(--teal);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;">Entrar com Google</button>
+</div>
+<div style="background:#FFF9EA;padding:6px 16px;font-size:11px;color:#8A6A12;text-align:center;">
+  🔒 Cada conta Google vê só os seus próprios dados — nada é partilhado com outros utilizadores.
+</div>
+
 <nav id="tabs">
   <button data-tab="resumo" class="active">Resumo</button>
   <button data-tab="gasto">Gastos&nbsp;iniciais</button>
@@ -264,9 +273,162 @@ window.addEventListener('error', function(e){
   }
 });
 const STORE_KEY = 'ribaue-banca-v1';
-let state = { gastos: [], entradas: [], vendas: [] };
+let state = { gastos: [], entradas: [], vendas: [], updatedAt: 0 };
 let currentTab = 'resumo';
 let loaded = false;
+
+// ---- Sincronização com Google Drive ----
+const GOOGLE_CLIENT_ID = '519082885918-iblstrjm2cqrur3j2ac38vqo2svgdb3m.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILENAME = 'calculadora-lucro-dados.json';
+let tokenClient = null;
+let accessToken = null;
+let driveFileId = null;
+let userEmail = null;
+let syncTimer = null;
+
+function initGoogleAuth(){
+  if(typeof google === 'undefined' || !google.accounts){
+    // biblioteca do Google ainda não carregou, tenta de novo em breve
+    setTimeout(initGoogleAuth, 500);
+    return;
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: DRIVE_SCOPE,
+    callback: onTokenResponse
+  });
+}
+
+function signIn(){
+  if(!tokenClient){ showToast('A carregar login do Google, tenta em 2 segundos'); return; }
+  tokenClient.requestAccessToken();
+}
+
+function signOut(){
+  if(accessToken){
+    google.accounts.oauth2.revoke(accessToken, ()=>{});
+  }
+  accessToken = null;
+  driveFileId = null;
+  userEmail = null;
+  if(syncTimer){ clearInterval(syncTimer); syncTimer = null; }
+  atualizarBarraSync();
+  showToast('Sessão terminada');
+}
+
+function onTokenResponse(response){
+  if(response.error){
+    showToast('Não foi possível entrar com Google');
+    return;
+  }
+  accessToken = response.access_token;
+  document.getElementById('sync-status').textContent = '🟡 A ligar ao Drive...';
+  fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  }).then(r=>r.json()).then(info=>{
+    userEmail = info.email || 'conta Google';
+    ensureDriveFile();
+  }).catch(()=>{
+    ensureDriveFile();
+  });
+}
+
+function ensureDriveFile(){
+  const q = encodeURIComponent(`name='${DRIVE_FILENAME}' and trashed=false`);
+  fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  })
+  .then(r=>r.json())
+  .then(data=>{
+    if(data.files && data.files.length > 0){
+      driveFileId = data.files[0].id;
+      pullFromDrive(true);
+    } else {
+      criarFicheiroDrive();
+    }
+  })
+  .catch(()=>{ showToast('Erro ao ligar ao Drive'); });
+}
+
+function criarFicheiroDrive(){
+  const metadata = { name: DRIVE_FILENAME, mimeType: 'application/json' };
+  const boundary = '-------calc-lucro-boundary';
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(state)}\r\n` +
+    `--${boundary}--`;
+  fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + accessToken,
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body: body
+  })
+  .then(r=>r.json())
+  .then(data=>{
+    driveFileId = data.id;
+    iniciarSincronizacaoPeriodica();
+    atualizarBarraSync();
+    showToast('Ligado ao Google Drive');
+  })
+  .catch(()=>{ showToast('Erro ao criar ficheiro no Drive'); });
+}
+
+function pullFromDrive(silencioso){
+  if(!accessToken || !driveFileId) return;
+  fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`, {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  })
+  .then(r=>r.json())
+  .then(remoto=>{
+    if(remoto && typeof remoto.updatedAt === 'number' && remoto.updatedAt > (state.updatedAt||0)){
+      state = remoto;
+      try{ localStorage.setItem('calculadora-lucro-estado', JSON.stringify(state)); }catch(e){}
+      render();
+      if(!silencioso) showToast('Dados actualizados a partir do Drive');
+    }
+    iniciarSincronizacaoPeriodica();
+    atualizarBarraSync();
+  })
+  .catch(()=>{
+    iniciarSincronizacaoPeriodica();
+    atualizarBarraSync();
+  });
+}
+
+function pushToDrive(){
+  if(!accessToken || !driveFileId) return;
+  fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: 'Bearer ' + accessToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(state)
+  }).catch(()=>{ showToast('Não foi possível sincronizar agora'); });
+}
+
+function iniciarSincronizacaoPeriodica(){
+  if(syncTimer) return;
+  syncTimer = setInterval(()=>pullFromDrive(true), 15000);
+}
+
+function atualizarBarraSync(){
+  const status = document.getElementById('sync-status');
+  const btn = document.getElementById('sync-btn');
+  if(!status || !btn) return;
+  if(accessToken && driveFileId){
+    status.textContent = `🟢 Sincronizado${userEmail ? ' — ' + userEmail : ''}`;
+    btn.textContent = 'Sair';
+    btn.onclick = signOut;
+  } else {
+    status.textContent = '🔴 Não sincronizado — só neste telemóvel';
+    btn.textContent = 'Entrar com Google';
+    btn.onclick = signIn;
+  }
+}
 
 function fmtMT(n){
   return (Math.round(n*100)/100).toLocaleString('pt-PT') + ' MT';
@@ -299,19 +461,25 @@ function loadState(){
     }
     if(raw){
       state = JSON.parse(raw);
+      if(typeof state.updatedAt !== 'number') state.updatedAt = 0;
     }
   }catch(e){
     // no data yet
   }
   loaded = true;
   render();
+  initGoogleAuth();
 }
 
 function saveState(){
+  state.updatedAt = Date.now();
   try{
     localStorage.setItem('calculadora-lucro-estado', JSON.stringify(state));
   }catch(e){
     showToast('Erro ao guardar — tenta novamente');
+  }
+  if(accessToken && driveFileId){
+    pushToDrive();
   }
 }
 
@@ -442,277 +610,4 @@ function renderResumo(){
           <tr><td>${i===0?'🏆 ':''}${p.produto}</td>
           <td style="text-align:right">${p.qtd}</td>
           <td style="text-align:right">${fmtMT(p.receita)}</td>
-          <td style="text-align:right" class="${p.lucro>=0?'lucro-pos':'lucro-neg'}">${p.lucro>=0?'+':''}${fmtMT(p.lucro)}</td></tr>
-        `).join('')}
-      </tbody></table>`;
-    })()}
-  </div>
-  <div class="card">
-    <h2>Cópia de segurança</h2>
-    <p style="font-size:12.5px;color:var(--zinc-3);margin:0 0 10px;">Guarda um ficheiro de backup, ou transfere os dados para outro telemóvel.</p>
-    <button class="secondary" style="width:100%;margin-bottom:8px;" onclick="exportarDados()">⬇ Exportar dados (backup)</button>
-    <label style="margin-top:0;">Importar backup</label>
-    <input type="file" accept="application/json" onchange="importarDados(this)">
-  </div>
-  <p class="foot-note">Os dados ficam guardados apenas neste telemóvel/navegador. Usa "Exportar" regularmente para não perderes o histórico.</p>
-  `;
-}
-
-function renderGasto(){
-  return `
-  <div class="card">
-    <h2>Novo gasto inicial</h2>
-    <label>Descrição</label>
-    <input id="g-desc" placeholder="Ex: Chapas de zinco, barrotes, pregos...">
-    <div class="row2">
-      <div><label>Valor (MT)</label><input id="g-valor" type="number" inputmode="decimal" placeholder="0"></div>
-      <div><label>Data</label><input id="g-data" type="date" value="${todayStr()}"></div>
-    </div>
-    <label>Assinatura (quem registou)</label>
-    <input id="g-nome" placeholder="Nome de quem fez este registo" value="${ultimoNome()}">
-    <button class="primary" onclick="addGasto()">Guardar gasto</button>
-  </div>
-  <div class="card">
-    <h2>Gastos registados (${state.gastos.length})</h2>
-    ${state.gastos.length===0 ? '<div class="empty">Nenhum gasto inicial registado ainda.</div>' :
-    `<table><thead><tr><th>Descrição</th><th>Data</th><th style="text-align:right">Valor</th><th></th></tr></thead><tbody>
-      ${[...state.gastos].reverse().map(g=>`
-        <tr><td>${g.desc}<br><span style="font-size:11px;color:var(--zinc-3)">✍ ${g.nome||'—'}</span></td><td>${fmtDate(g.data)}</td><td style="text-align:right">${fmtMT(g.valor)}</td>
-        <td><button class="del" onclick="delItem('gastos', ${g.id})">✕</button></td></tr>
-      `).join('')}
-    </tbody></table>`}
-  </div>
-  `;
-}
-
-function renderEntrada(){
-  return `
-  <div class="card">
-    <h2>Nova entrada de stock</h2>
-    <label>Produto</label>
-    <input id="e-produto" placeholder="Ex: Capinha iPhone, Fone bluetooth...">
-    <div class="row2">
-      <div><label>Quantidade</label><input id="e-qtd" type="number" inputmode="numeric" placeholder="0"></div>
-      <div><label>Custo unitário (MT)</label><input id="e-custo" type="number" inputmode="decimal" placeholder="0"></div>
-    </div>
-    <label>Data</label>
-    <input id="e-data" type="date" value="${todayStr()}">
-    <label>Assinatura (quem registou)</label>
-    <input id="e-nome" placeholder="Nome de quem fez este registo" value="${ultimoNome()}">
-    <div class="preview" id="e-preview"></div>
-    <button class="primary" onclick="addEntrada()">Guardar entrada</button>
-  </div>
-  <div class="card">
-    <h2>Entradas registadas (${state.entradas.length})</h2>
-    ${state.entradas.length===0 ? '<div class="empty">Nenhuma entrada de stock ainda.</div>' :
-    `<table><thead><tr><th>Produto</th><th>Data</th><th style="text-align:right">Custo total</th><th></th></tr></thead><tbody>
-      ${[...state.entradas].reverse().map(e=>`
-        <tr><td>${e.produto}<br><span style="font-size:11px;color:var(--zinc-3)">${e.qtd} un × ${fmtMT(e.custoUnit)} · ✍ ${e.nome||'—'}</span></td>
-        <td>${fmtDate(e.data)}</td><td style="text-align:right">${fmtMT(e.qtd*e.custoUnit)}</td>
-        <td><button class="del" onclick="delItem('entradas', ${e.id})">✕</button></td></tr>
-      `).join('')}
-    </tbody></table>`}
-  </div>
-  `;
-}
-
-function renderVenda(){
-  const stock = computeStock();
-  const produtos = Object.keys(stock).filter(p=>stock[p].qty>0);
-  return `
-  <div class="card">
-    <h2>Nova venda</h2>
-    <label>Produto</label>
-    <input id="v-produto" list="lista-produtos" placeholder="Escreve ou escolhe da lista">
-    <datalist id="lista-produtos">
-      ${produtos.map(p=>`<option value="${p}">`).join('')}
-    </datalist>
-    <div class="row2">
-      <div><label>Quantidade vendida</label><input id="v-qtd" type="number" inputmode="numeric" placeholder="0"></div>
-      <div><label>Preço de venda unit. (MT)</label><input id="v-preco" type="number" inputmode="decimal" placeholder="0"></div>
-    </div>
-    <label>Data</label>
-    <input id="v-data" type="date" value="${todayStr()}">
-    <label>Assinatura (quem registou)</label>
-    <input id="v-nome" placeholder="Nome de quem fez esta venda" value="${ultimoNome()}">
-    <div class="preview" id="v-preview">Escolhe o produto e a quantidade para ver o lucro calculado automaticamente.</div>
-    <button class="primary" onclick="addVenda()">Registar venda</button>
-  </div>
-  <div class="card">
-    <h2>Mais vendidos</h2>
-    ${(()=>{
-      const top = produtosMaisVendidos();
-      if(top.length===0) return '<div class="empty">Ainda não há vendas registadas.</div>';
-      return `<table><thead><tr><th>Produto</th><th style="text-align:right">Qtd</th><th style="text-align:right">Lucro</th></tr></thead><tbody>
-        ${top.slice(0,5).map((p,i)=>`
-          <tr><td>${i===0?'🏆 ':''}${p.produto}</td>
-          <td style="text-align:right">${p.qtd}</td>
-          <td style="text-align:right" class="${p.lucro>=0?'lucro-pos':'lucro-neg'}">${p.lucro>=0?'+':''}${fmtMT(p.lucro)}</td></tr>
-        `).join('')}
-      </tbody></table>`;
-    })()}
-  </div>
-  <div class="card">
-    <h2>Vendas registadas (${state.vendas.length})</h2>
-    ${state.vendas.length===0 ? '<div class="empty">Nenhuma venda registada ainda.</div>' :
-    `<table><thead><tr><th>Produto</th><th>Data</th><th style="text-align:right">Lucro</th><th></th></tr></thead><tbody>
-      ${[...state.vendas].reverse().map(v=>`
-        <tr><td>${v.produto}<br><span style="font-size:11px;color:var(--zinc-3)">${v.qtd} un × ${fmtMT(v.precoUnit)} · ✍ ${v.nome||'—'}</span></td>
-        <td>${fmtDate(v.data)}</td><td style="text-align:right" class="${v.lucro>=0?'lucro-pos':'lucro-neg'}">${v.lucro>=0?'+':''}${fmtMT(v.lucro)}</td>
-        <td><button class="del" onclick="delItem('vendas', ${v.id})">✕</button></td></tr>
-      `).join('')}
-    </tbody></table>`}
-  </div>
-  `;
-}
-
-function renderStock(){
-  const stock = computeStock();
-  const nomes = Object.keys(stock).sort();
-  return `
-  <div class="card">
-    <h2>Stock actual</h2>
-    ${nomes.length===0 ? '<div class="empty">Regista uma entrada de stock para começares a ver aqui.</div>' :
-    nomes.map(n=>{
-      const s = stock[n];
-      const custoMedio = s.qty>0 ? s.valor/s.qty : 0;
-      return `<div class="stock-row">
-        <div>
-          <div class="stock-name">${n}</div>
-          <div class="stock-qty">custo médio ${fmtMT(custoMedio)}/un</div>
-        </div>
-        <div style="text-align:right">
-          <div class="${s.qty<=2?'low':''}" style="font-weight:700">${s.qty} un</div>
-          <div class="stock-qty">${fmtMT(Math.max(s.valor,0))}</div>
-        </div>
-      </div>`;
-    }).join('')
-    }
-  </div>
-  <p class="foot-note">O stock é calculado automaticamente a partir das entradas menos as vendas registadas. Quantidades em vermelho estão a acabar.</p>
-  `;
-}
-
-// ---- Handlers ----
-function attachHandlers(){
-  const eProduto = document.getElementById('e-produto');
-  const eQtd = document.getElementById('e-qtd');
-  const eCusto = document.getElementById('e-custo');
-  if(eQtd && eCusto){
-    [eQtd, eCusto].forEach(el=>el.addEventListener('input', updateEntradaPreview));
-  }
-  const vProduto = document.getElementById('v-produto');
-  const vQtd = document.getElementById('v-qtd');
-  const vPreco = document.getElementById('v-preco');
-  if(vProduto && vQtd && vPreco){
-    [vProduto, vQtd, vPreco].forEach(el=>el.addEventListener('input', updateVendaPreview));
-  }
-}
-
-function updateEntradaPreview(){
-  const qtd = parseFloat(document.getElementById('e-qtd').value)||0;
-  const custo = parseFloat(document.getElementById('e-custo').value)||0;
-  document.getElementById('e-preview').innerHTML = `Custo total desta entrada: <b>${fmtMT(qtd*custo)}</b>`;
-}
-
-function updateVendaPreview(){
-  const produto = document.getElementById('v-produto').value.trim();
-  const qtd = parseFloat(document.getElementById('v-qtd').value)||0;
-  const preco = parseFloat(document.getElementById('v-preco').value)||0;
-  const el = document.getElementById('v-preview');
-  if(!produto || qtd<=0){
-    el.innerHTML = 'Escolhe o produto e a quantidade para ver o lucro calculado automaticamente.';
-    return;
-  }
-  const custoMedio = custoMedioAtual(produto);
-  if(custoMedio===null){
-    el.innerHTML = `<b>Aviso:</b> não há stock registado para "${produto}". O lucro vai assumir custo 0 — regista primeiro a entrada deste produto para um cálculo correcto.`;
-    return;
-  }
-  const lucro = qtd*(preco-custoMedio);
-  el.innerHTML = `Custo médio: <b>${fmtMT(custoMedio)}</b>/un &nbsp;→&nbsp; Lucro desta venda: <b class="${lucro>=0?'lucro-pos':'lucro-neg'}">${lucro>=0?'+':''}${fmtMT(lucro)}</b>`;
-}
-
-function ultimoNome(){
-  try{
-    return localStorage.getItem('calculadora-lucro-ultimo-nome') || '';
-  }catch(e){ return ''; }
-}
-function guardarUltimoNome(nome){
-  try{
-    if(nome) localStorage.setItem('calculadora-lucro-ultimo-nome', nome);
-  }catch(e){}
-}
-
-function addGasto(){
-  const desc = document.getElementById('g-desc').value.trim();
-  const valor = parseFloat(document.getElementById('g-valor').value);
-  const data = document.getElementById('g-data').value || todayStr();
-  const nome = document.getElementById('g-nome').value.trim();
-  if(!desc || !valor || valor<=0){ showToast('Preenche a descrição e o valor'); return; }
-  state.gastos.push({id:Date.now(), desc, valor, data, nome});
-  guardarUltimoNome(nome);
-  saveState();
-  showToast('Gasto guardado');
-  render();
-}
-
-function addEntrada(){
-  const produto = document.getElementById('e-produto').value.trim();
-  const qtd = parseFloat(document.getElementById('e-qtd').value);
-  const custoUnit = parseFloat(document.getElementById('e-custo').value);
-  const data = document.getElementById('e-data').value || todayStr();
-  const nome = document.getElementById('e-nome').value.trim();
-  if(!produto || !qtd || qtd<=0 || custoUnit===undefined || isNaN(custoUnit) || custoUnit<0){
-    showToast('Preenche produto, quantidade e custo'); return;
-  }
-  state.entradas.push({id:Date.now(), produto, qtd, custoUnit, data, nome});
-  guardarUltimoNome(nome);
-  saveState();
-  showToast('Entrada guardada');
-  render();
-}
-
-function addVenda(){
-  const produto = document.getElementById('v-produto').value.trim();
-  const qtd = parseFloat(document.getElementById('v-qtd').value);
-  const precoUnit = parseFloat(document.getElementById('v-preco').value);
-  const data = document.getElementById('v-data').value || todayStr();
-  const nome = document.getElementById('v-nome').value.trim();
-  if(!produto || !qtd || qtd<=0 || precoUnit===undefined || isNaN(precoUnit) || precoUnit<0){
-    showToast('Preenche produto, quantidade e preço'); return;
-  }
-  const stock = computeStock();
-  const disponivel = stock[produto] ? stock[produto].qty : 0;
-  if(qtd > disponivel){
-    showToast(`Só há ${disponivel} un de "${produto}" em stock`);
-    return;
-  }
-  const custoMedio = custoMedioAtual(produto) || 0;
-  const lucro = qtd*(precoUnit-custoMedio);
-  state.vendas.push({id:Date.now(), produto, qtd, precoUnit, custoUnit:custoMedio, lucro, data, nome});
-  guardarUltimoNome(nome);
-  saveState();
-  showToast('Venda registada');
-  render();
-}
-
-function delItem(colecao, id){
-  state[colecao] = state[colecao].filter(x=>x.id!==id);
-  saveState();
-  render();
-}
-
-document.getElementById('tabs').addEventListener('click', (e)=>{
-  const btn = e.target.closest('button');
-  if(!btn) return;
-  document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  currentTab = btn.dataset.tab;
-  render();
-});
-
-loadState();
-</script>
-</body>
-</html>
+          <t
