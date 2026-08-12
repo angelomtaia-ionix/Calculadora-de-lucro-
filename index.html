@@ -261,13 +261,15 @@
 </div>
 
 <nav id="tabs">
-  <button data-tab="resumo" class="active">Resumo</button>
-  <button data-tab="gasto">Gastos&nbsp;iniciais</button>
-  <button data-tab="entrada">Entrada</button>
+  <button data-tab="resumo" class="active" data-admin-only="1">Resumo</button>
+  <button data-tab="gasto" data-admin-only="1">Gastos&nbsp;iniciais</button>
+  <button data-tab="entrada" data-admin-only="1">Entrada</button>
   <button data-tab="venda">Venda</button>
-  <button data-tab="stock">Stock</button>
-  <button data-tab="ajuda">Ajuda</button>
+  <button data-tab="stock" data-admin-only="1">Stock</button>
+  <button data-tab="ajuda" data-admin-only="1">Ajuda</button>
 </nav>
+
+<div id="role-bar" style="display:none;background:#1E2A38;color:#D6A11C;font-size:11.5px;padding:5px 16px;text-align:center;"></div>
 
 <main id="app">Carregando…</main>
 <div class="toast" id="toast"></div>
@@ -284,6 +286,78 @@ window.addEventListener('error', function(e){
 const STORE_KEY = 'ribaue-banca-v1';
 let state = { gastos: [], entradas: [], vendas: [], updatedAt: 0 };
 let currentTab = 'resumo';
+
+// ---- Papel do dispositivo (Administrador / Vendedor) ----
+function obterPapel(){
+  try{ return localStorage.getItem('calculadora-lucro-papel') || 'admin'; }catch(e){ return 'admin'; }
+}
+function definirPapel(papel){
+  try{ localStorage.setItem('calculadora-lucro-papel', papel); }catch(e){}
+}
+function obterPin(){
+  // prioriza o PIN guardado nos dados sincronizados (sobrevive a limpar o telemóvel)
+  if(state && state.adminPin) return state.adminPin;
+  try{ return localStorage.getItem('calculadora-lucro-pin') || ''; }catch(e){ return ''; }
+}
+function definirPin(pin){
+  state.adminPin = pin;
+  saveState(); // grava localmente e envia para o Drive, se sincronizado
+  try{ localStorage.setItem('calculadora-lucro-pin', pin); }catch(e){}
+}
+
+function activarModoVendedor(){
+  let pin = obterPin();
+  if(!pin){
+    const novoPin = prompt('Ainda não definiste um PIN de administrador.\nCria um PIN (4 dígitos) para poderes voltar a este modo depois:');
+    if(!novoPin || novoPin.trim().length < 4){ showToast('PIN inválido — precisa de pelo menos 4 dígitos'); return; }
+    definirPin(novoPin.trim());
+  }
+  definirPapel('vendas');
+  currentTab = 'venda';
+  aplicarPermissoes();
+  render();
+  showToast('Modo Vendedor activado neste telemóvel');
+}
+
+function voltarModoAdmin(){
+  const pin = obterPin();
+  const tentativa = prompt('Introduz o PIN de administrador para voltar ao modo completo:');
+  if(tentativa === null) return;
+  if(tentativa.trim() !== pin){ showToast('PIN incorrecto'); return; }
+  definirPapel('admin');
+  aplicarPermissoes();
+  render();
+  showToast('Modo Administrador restaurado');
+}
+
+function aplicarPermissoes(){
+  const papel = obterPapel();
+  const bar = document.getElementById('role-bar');
+  document.querySelectorAll('#tabs button[data-admin-only]').forEach(btn=>{
+    btn.style.display = (papel === 'vendas') ? 'none' : '';
+  });
+  if(papel === 'vendas'){
+    if(currentTab !== 'venda') currentTab = 'venda';
+    document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active'));
+    const vBtn = document.querySelector('#tabs button[data-tab="venda"]');
+    if(vBtn) vBtn.classList.add('active');
+    if(bar){
+      bar.style.display = 'flex';
+      bar.style.justifyContent = 'space-between';
+      bar.style.alignItems = 'center';
+      bar.innerHTML = '<span>👤 Modo Vendedor — só podes registar vendas</span>' +
+        '<button onclick="voltarModoAdmin()" style="background:none;border:1px solid #D6A11C;color:#D6A11C;border-radius:4px;padding:3px 8px;font-size:10.5px;cursor:pointer;">Sair deste modo</button>';
+    }
+  } else {
+    if(bar){
+      bar.style.display = 'flex';
+      bar.style.justifyContent = 'space-between';
+      bar.style.alignItems = 'center';
+      bar.innerHTML = '<span>🛠 Modo Administrador — acesso completo</span>' +
+        '<button onclick="activarModoVendedor()" style="background:none;border:1px solid #D6A11C;color:#D6A11C;border-radius:4px;padding:3px 8px;font-size:10.5px;cursor:pointer;">Activar Modo Vendedor</button>';
+    }
+  }
+}
 let loaded = false;
 
 // ---- Sincronização com Google Drive ----
@@ -315,7 +389,27 @@ function initGoogleAuth(){
       scope: DRIVE_SCOPE,
       callback: onTokenResponse
     });
-    if(status) status.textContent = '🔴 Não sincronizado — só neste telemóvel';
+    if(restaurarSessao()){
+      // já tínhamos sessão nesta mesma utilização da app — confirma que o token ainda é válido
+      if(status) status.textContent = '🟡 A restaurar sessão...';
+      fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }).then(r=>{
+        if(!r.ok) throw new Error('token expirado');
+        return r.json();
+      }).then(info=>{
+        userEmail = info.email || userEmail;
+        iniciarSincronizacaoPeriodica();
+        pullFromDrive(true);
+        atualizarBarraSync();
+      }).catch(()=>{
+        accessToken = null; driveFileId = null; userEmail = null;
+        limparSessao();
+        atualizarBarraSync();
+      });
+    } else {
+      if(status) status.textContent = '🔴 Não sincronizado — só neste telemóvel';
+    }
   }catch(e){
     if(status) status.textContent = '🔴 Erro a preparar login: ' + e.message;
   }
@@ -331,6 +425,31 @@ function signIn(){
   tokenClient.requestAccessToken();
 }
 
+function guardarSessao(){
+  try{
+    sessionStorage.setItem('gdrive-sessao', JSON.stringify({
+      accessToken, driveFileId, userEmail
+    }));
+  }catch(e){}
+}
+
+function limparSessao(){
+  try{ sessionStorage.removeItem('gdrive-sessao'); }catch(e){}
+}
+
+function restaurarSessao(){
+  try{
+    const raw = sessionStorage.getItem('gdrive-sessao');
+    if(!raw) return false;
+    const s = JSON.parse(raw);
+    if(!s.accessToken || !s.driveFileId) return false;
+    accessToken = s.accessToken;
+    driveFileId = s.driveFileId;
+    userEmail = s.userEmail;
+    return true;
+  }catch(e){ return false; }
+}
+
 function signOut(){
   if(accessToken){
     google.accounts.oauth2.revoke(accessToken, ()=>{});
@@ -338,9 +457,14 @@ function signOut(){
   accessToken = null;
   driveFileId = null;
   userEmail = null;
+  limparSessao();
   if(syncTimer){ clearInterval(syncTimer); syncTimer = null; }
+  // limpa os dados do ecrã e do telemóvel — ficam só guardados no Drive da conta
+  state = { gastos: [], entradas: [], vendas: [], updatedAt: 0 };
+  try{ localStorage.removeItem('calculadora-lucro-estado'); }catch(e){}
   atualizarBarraSync();
-  showToast('Sessão terminada');
+  render();
+  showToast('Sessão terminada — dados removidos deste telemóvel');
 }
 
 function onTokenResponse(response){
@@ -354,8 +478,10 @@ function onTokenResponse(response){
     headers: { Authorization: 'Bearer ' + accessToken }
   }).then(r=>r.json()).then(info=>{
     userEmail = info.email || 'conta Google';
+    guardarSessao();
     ensureDriveFile();
   }).catch(()=>{
+    guardarSessao();
     ensureDriveFile();
   });
 }
@@ -374,6 +500,7 @@ function ensureDriveFile(){
   .then(data=>{
     if(data.files && data.files.length > 0){
       driveFileId = data.files[0].id;
+      guardarSessao();
       pullFromDrive(true);
     } else {
       criarFicheiroDrive();
@@ -407,6 +534,7 @@ function criarFicheiroDrive(){
   })
   .then(data=>{
     driveFileId = data.id;
+    guardarSessao();
     iniciarSincronizacaoPeriodica();
     atualizarBarraSync();
     showToast('Ligado ao Google Drive');
@@ -985,6 +1113,7 @@ function delItem(colecao, id){
 document.getElementById('tabs').addEventListener('click', (e)=>{
   const btn = e.target.closest('button');
   if(!btn) return;
+  if(obterPapel() === 'vendas' && btn.dataset.tab !== 'venda') return;
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   currentTab = btn.dataset.tab;
@@ -992,12 +1121,59 @@ document.getElementById('tabs').addEventListener('click', (e)=>{
 });
 
 loadState();
+aplicarPermissoes();
+if(obterPapel() === 'vendas'){ render(); }
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      // se já houver uma versão à espera (ex: separador estava aberto quando actualizaste)
+      if(reg.waiting){
+        mostrarAvisoAtualizacao(reg);
+      }
+      // deteta quando uma nova versão acaba de ser descarregada
+      reg.addEventListener('updatefound', ()=>{
+        const novo = reg.installing;
+        if(!novo) return;
+        novo.addEventListener('statechange', ()=>{
+          if(novo.state === 'installed' && navigator.serviceWorker.controller){
+            mostrarAvisoAtualizacao(reg);
+          }
+        });
+      });
+      // verifica se há actualizações sempre que a pessoa volta a abrir a app
+      document.addEventListener('visibilitychange', ()=>{
+        if(document.visibilityState === 'visible'){
+          reg.update().catch(()=>{});
+        }
+      });
+    }).catch(()=>{});
+
+    // recarrega automaticamente assim que a nova versão assume o controlo
+    let jaRecarregou = false;
+    navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+      if(jaRecarregou) return;
+      jaRecarregou = true;
+      window.location.reload();
+    });
   });
 }
+
+function mostrarAvisoAtualizacao(reg){
+  if(document.getElementById('update-bar')) return; // já está visível
+  const bar = document.createElement('div');
+  bar.id = 'update-bar';
+  bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:100;background:var(--ochre);color:#1E2A38;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;font-weight:600;box-shadow:0 -2px 8px rgba(0,0,0,0.2);';
+  bar.innerHTML = '<span>🔄 Há uma versão nova da app disponível</span>' +
+    '<button id="update-btn" style="background:#1E2A38;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap;">Actualizar agora</button>';
+  document.body.appendChild(bar);
+  document.getElementById('update-btn').addEventListener('click', ()=>{
+    const alvo = reg.waiting || reg.installing;
+    if(alvo) alvo.postMessage('skipWaiting');
+    bar.innerHTML = '<span>A actualizar...</span>';
+  });
+}
+
 </script>
 </body>
 </html>
