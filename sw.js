@@ -1,4 +1,4 @@
-const CACHE_NAME = 'calculadora-lucro-v1';
+const CACHE_NAME = 'calculadora-lucro-v2';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -10,7 +10,14 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).catch(()=>{})
   );
-  self.skipWaiting();
+  // não activa logo sozinho — espera confirmação da app (ver mensagem 'skipWaiting')
+  // para podermos avisar o utilizador antes de trocar de versão
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {
