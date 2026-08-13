@@ -256,9 +256,6 @@
   <span id="sync-status">🔴 Não sincronizado — só neste telemóvel</span>
   <button id="sync-btn" onclick="signIn()" style="background:var(--teal);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;">Entrar com Google</button>
 </div>
-<div style="background:#FFF9EA;padding:6px 16px;font-size:11px;color:#8A6A12;text-align:center;">
-  🔒 Cada conta Google vê só os seus próprios dados — nada é partilhado com outros utilizadores.
-</div>
 
 <nav id="tabs">
   <button data-tab="resumo" class="active" data-admin-only="1">Resumo</button>
@@ -266,12 +263,16 @@
   <button data-tab="entrada" data-admin-only="1">Entrada</button>
   <button data-tab="venda">Venda</button>
   <button data-tab="stock" data-admin-only="1">Stock</button>
+  <button data-tab="cargas" data-admin-only="1">Cargas</button>
   <button data-tab="ajuda" data-admin-only="1">Ajuda</button>
 </nav>
 
 <div id="role-bar" style="display:none;background:#1E2A38;color:#D6A11C;font-size:11.5px;padding:5px 16px;text-align:center;"></div>
 
 <main id="app">Carregando…</main>
+<div style="background:#FFF9EA;padding:8px 16px;font-size:11px;color:#8A6A12;text-align:center;">
+  🔒 Cada conta Google vê só os seus próprios dados — nada é partilhado com outros utilizadores.
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -427,19 +428,19 @@ function signIn(){
 
 function guardarSessao(){
   try{
-    sessionStorage.setItem('gdrive-sessao', JSON.stringify({
+    localStorage.setItem('gdrive-sessao', JSON.stringify({
       accessToken, driveFileId, userEmail
     }));
   }catch(e){}
 }
 
 function limparSessao(){
-  try{ sessionStorage.removeItem('gdrive-sessao'); }catch(e){}
+  try{ localStorage.removeItem('gdrive-sessao'); }catch(e){}
 }
 
 function restaurarSessao(){
   try{
-    const raw = sessionStorage.getItem('gdrive-sessao');
+    const raw = localStorage.getItem('gdrive-sessao');
     if(!raw) return false;
     const s = JSON.parse(raw);
     if(!s.accessToken || !s.driveFileId) return false;
@@ -739,6 +740,57 @@ function produtosMaisVendidos(){
     .sort((a,b)=> b.qtd - a.qtd);
 }
 
+// Calcula quanto de cada entrada (lote) já foi vendido, seguindo a ordem
+// "primeiro a entrar, primeiro a sair" (FIFO), e atribui receita/lucro reais a cada lote.
+function calcularLotes(){
+  const lotes = state.entradas.map(e => ({
+    ...e, qtdVendida: 0, receita: 0, lucro: 0, restante: e.qtd
+  }));
+  const porProduto = {};
+  lotes.forEach(l=>{
+    if(!porProduto[l.produto]) porProduto[l.produto] = [];
+    porProduto[l.produto].push(l);
+  });
+  Object.values(porProduto).forEach(arr => arr.sort((a,b)=>a.id-b.id));
+
+  const vendasOrdenadas = [...state.vendas].sort((a,b)=>a.id-b.id);
+  vendasOrdenadas.forEach(v=>{
+    let restante = v.qtd;
+    const arr = porProduto[v.produto] || [];
+    for(const lote of arr){
+      if(restante <= 0) break;
+      if(lote.restante <= 0) continue;
+      const consumido = Math.min(lote.restante, restante);
+      lote.restante -= consumido;
+      restante -= consumido;
+      lote.qtdVendida += consumido;
+      lote.receita += consumido * v.precoUnit;
+      lote.lucro += consumido * (v.precoUnit - lote.custoUnit);
+    }
+  });
+  return lotes;
+}
+
+function calcularCargas(){
+  const lotes = calcularLotes();
+  const agrupado = {};
+  lotes.forEach(l=>{
+    const nome = l.carga && l.carga.trim() ? l.carga.trim() : 'Sem carga definida';
+    if(!agrupado[nome]) agrupado[nome] = { investido:0, qtdTotal:0, qtdVendida:0, qtdRestante:0, receita:0, lucro:0, dataMaisRecente:l.data };
+    const g = agrupado[nome];
+    g.investido += l.qtd * l.custoUnit;
+    g.qtdTotal += l.qtd;
+    g.qtdVendida += l.qtdVendida;
+    g.qtdRestante += l.restante;
+    g.receita += l.receita;
+    g.lucro += l.lucro;
+    if(l.data > g.dataMaisRecente) g.dataMaisRecente = l.data;
+  });
+  return Object.entries(agrupado)
+    .map(([carga, dados])=>({carga, ...dados}))
+    .sort((a,b)=> b.dataMaisRecente.localeCompare(a.dataMaisRecente));
+}
+
 // ---- Render ----
 function render(){
   if(!loaded) return;
@@ -748,6 +800,7 @@ function render(){
   else if(currentTab==='entrada') app.innerHTML = renderEntrada();
   else if(currentTab==='venda') app.innerHTML = renderVenda();
   else if(currentTab==='stock') app.innerHTML = renderStock();
+  else if(currentTab==='cargas') app.innerHTML = renderCargas();
   else if(currentTab==='ajuda') app.innerHTML = renderAjuda();
   attachHandlers();
 }
@@ -833,6 +886,7 @@ function renderGasto(){
 }
 
 function renderEntrada(){
+  const proximaCarga = 'Carga ' + (new Set(state.entradas.map(e=>e.carga).filter(Boolean)).size + 1);
   return `
   <div class="card">
     <h2>Nova entrada de stock</h2>
@@ -842,6 +896,8 @@ function renderEntrada(){
       <div><label>Quantidade</label><input id="e-qtd" type="number" inputmode="numeric" placeholder="0"></div>
       <div><label>Custo unitário (MT)</label><input id="e-custo" type="number" inputmode="decimal" placeholder="0"></div>
     </div>
+    <label>Carga / Lote (opcional)</label>
+    <input id="e-carga" placeholder="Ex: ${esc(proximaCarga)}">
     <label>Data</label>
     <input id="e-data" type="date" value="${todayStr()}">
     <label>Assinatura (quem registou) *</label>
@@ -854,7 +910,7 @@ function renderEntrada(){
     ${state.entradas.length===0 ? '<div class="empty">Nenhuma entrada de stock ainda.</div>' :
     `<table><thead><tr><th>Produto</th><th>Data</th><th style="text-align:right">Custo total</th><th></th></tr></thead><tbody>
       ${[...state.entradas].reverse().map(e=>`
-        <tr><td>${esc(e.produto)}<br><span style="font-size:11px;color:var(--zinc-3)">${e.qtd} un × ${fmtMT(e.custoUnit)} · ✍ ${esc(e.nome)||'—'}</span></td>
+        <tr><td>${esc(e.produto)}<br><span style="font-size:11px;color:var(--zinc-3)">${e.qtd} un × ${fmtMT(e.custoUnit)} · ✍ ${esc(e.nome)||'—'}${e.carga ? ' · 📦 '+esc(e.carga) : ''}</span></td>
         <td>${fmtDate(e.data)}</td><td style="text-align:right">${fmtMT(e.qtd*e.custoUnit)}</td>
         <td><button class="del" onclick="delItem('entradas', ${e.id})">✕</button></td></tr>
       `).join('')}
@@ -937,6 +993,35 @@ function renderStock(){
     }
   </div>
   <p class="foot-note">O stock é calculado automaticamente a partir das entradas menos as vendas registadas. Quantidades em vermelho estão a acabar.</p>
+  `;
+}
+
+function renderCargas(){
+  const cargas = calcularCargas();
+  return `
+  <div class="card">
+    <h2>Lucro por Carga / Lote</h2>
+    <p style="font-size:12.5px;color:var(--zinc-3);margin:0 0 12px;">Cada carga junta os produtos que registaste com o mesmo nome no campo "Carga / Lote" da Entrada. O lucro é calculado pela ordem real das vendas (primeiro a entrar, primeiro a sair).</p>
+    ${cargas.length===0 ? '<div class="empty">Ainda não há entradas registadas.</div>' : ''}
+  </div>
+  ${cargas.map(c=>{
+    const pctVendido = c.qtdTotal>0 ? Math.round((c.qtdVendida/c.qtdTotal)*100) : 0;
+    return `
+    <div class="card">
+      <h2>📦 ${esc(c.carga)}</h2>
+      <div class="stat-grid" style="margin-bottom:10px;">
+        <div class="stat gasto"><div class="label">Investido</div><div class="value" style="font-size:16px;">${fmtMT(c.investido)}</div></div>
+        <div class="stat vendas"><div class="label">Receita</div><div class="value" style="font-size:16px;">${fmtMT(c.receita)}</div></div>
+        <div class="stat lucro"><div class="label">Lucro</div><div class="value" style="font-size:16px;">${c.lucro>=0?'+':''}${fmtMT(c.lucro)}</div></div>
+        <div class="stat"><div class="label">Vendido</div><div class="value" style="font-size:16px;">${c.qtdVendida}/${c.qtdTotal} un</div></div>
+      </div>
+      <div style="background:var(--line);border-radius:6px;height:8px;overflow:hidden;margin-bottom:4px;">
+        <div style="background:var(--teal);height:100%;width:${pctVendido}%;"></div>
+      </div>
+      <p style="font-size:11.5px;color:var(--zinc-3);margin:0;">${pctVendido}% desta carga já foi vendida · ${c.qtdRestante} un ainda em stock</p>
+    </div>
+    `;
+  }).join('')}
   `;
 }
 
@@ -1068,11 +1153,12 @@ function addEntrada(){
   const custoUnit = parseFloat(document.getElementById('e-custo').value);
   const data = document.getElementById('e-data').value || todayStr();
   const nome = document.getElementById('e-nome').value.trim();
+  const carga = document.getElementById('e-carga').value.trim();
   if(!produto || !qtd || qtd<=0 || custoUnit===undefined || isNaN(custoUnit) || custoUnit<0){
     showToast('Preenche produto, quantidade e custo'); return;
   }
   if(!nome){ showToast('A assinatura (nome de quem registou) é obrigatória'); return; }
-  state.entradas.push({id:Date.now(), produto, qtd, custoUnit, data, nome});
+  state.entradas.push({id:Date.now(), produto, qtd, custoUnit, data, nome, carga});
   guardarUltimoNome(nome);
   saveState();
   showToast('Entrada guardada');
