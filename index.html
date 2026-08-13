@@ -363,7 +363,7 @@ let loaded = false;
 
 // ---- Sincronização com Google Drive ----
 const GOOGLE_CLIENT_ID = '519082885918-iblstrjm2cqrur3j2ac38vqo2svgdb3m.apps.googleusercontent.com';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
 const DRIVE_FILENAME = 'calculadora-lucro-dados.json';
 let tokenClient = null;
 let accessToken = null;
@@ -392,14 +392,14 @@ function initGoogleAuth(){
     });
     if(restaurarSessao()){
       // já tínhamos sessão nesta mesma utilização da app — confirma que o token ainda é válido
+      // (usa a própria API do Drive para validar, já que é isso que o âmbito de acesso permite)
       if(status) status.textContent = '🟡 A restaurar sessão...';
-      fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?fields=id`, {
         headers: { Authorization: 'Bearer ' + accessToken }
       }).then(r=>{
         if(!r.ok) throw new Error('token expirado');
         return r.json();
-      }).then(info=>{
-        userEmail = info.email || userEmail;
+      }).then(()=>{
         iniciarSincronizacaoPeriodica();
         pullFromDrive(true);
         atualizarBarraSync();
