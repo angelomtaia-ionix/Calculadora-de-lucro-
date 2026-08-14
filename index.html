@@ -264,6 +264,7 @@
   <button data-tab="venda">Venda</button>
   <button data-tab="stock" data-admin-only="1">Stock</button>
   <button data-tab="cargas" data-admin-only="1">Cargas</button>
+  <button data-tab="historico" data-admin-only="1">Histórico</button>
   <button data-tab="ajuda" data-admin-only="1">Ajuda</button>
 </nav>
 
@@ -791,6 +792,60 @@ function calcularCargas(){
     .sort((a,b)=> b.dataMaisRecente.localeCompare(a.dataMaisRecente));
 }
 
+// ---- Histórico de vendas e lucro por período ----
+const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+let historicoPeriodo = 'dia';
+
+function parseDataLocal(s){
+  const [y,m,d] = s.split('-').map(Number);
+  return new Date(y, m-1, d);
+}
+function formatarDataCurta(d){
+  return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+}
+function chaveSemana(dataStr){
+  const d = parseDataLocal(dataStr);
+  const diaSemana = d.getDay(); // 0 = domingo
+  const diff = (diaSemana === 0 ? -6 : 1 - diaSemana); // segunda-feira como início da semana
+  const segunda = new Date(d);
+  segunda.setDate(d.getDate() + diff);
+  return segunda.getFullYear() + '-' + String(segunda.getMonth()+1).padStart(2,'0') + '-' + String(segunda.getDate()).padStart(2,'0');
+}
+
+function agruparVendasPorPeriodo(tipo){
+  const grupos = {};
+  state.vendas.forEach(v=>{
+    const d = parseDataLocal(v.data);
+    let chave, label;
+    if(tipo === 'dia'){
+      chave = v.data;
+      label = fmtDate(v.data);
+    } else if(tipo === 'semana'){
+      chave = chaveSemana(v.data);
+      const inicio = parseDataLocal(chave);
+      const fim = new Date(inicio); fim.setDate(inicio.getDate()+6);
+      label = 'Semana de ' + formatarDataCurta(inicio) + ' a ' + formatarDataCurta(fim);
+    } else if(tipo === 'mes'){
+      chave = v.data.slice(0,7);
+      label = MESES_PT[d.getMonth()] + ' de ' + d.getFullYear();
+    } else {
+      chave = String(d.getFullYear());
+      label = String(d.getFullYear());
+    }
+    if(!grupos[chave]) grupos[chave] = { chave, label, qtd:0, receita:0, lucro:0 };
+    grupos[chave].qtd += v.qtd;
+    grupos[chave].receita += v.qtd * v.precoUnit;
+    grupos[chave].lucro += v.lucro;
+  });
+  return Object.values(grupos).sort((a,b)=> b.chave.localeCompare(a.chave));
+}
+
+function mudarHistoricoPeriodo(tipo){
+  historicoPeriodo = tipo;
+  render();
+}
+
+
 // ---- Render ----
 function render(){
   if(!loaded) return;
@@ -801,6 +856,7 @@ function render(){
   else if(currentTab==='venda') app.innerHTML = renderVenda();
   else if(currentTab==='stock') app.innerHTML = renderStock();
   else if(currentTab==='cargas') app.innerHTML = renderCargas();
+  else if(currentTab==='historico') app.innerHTML = renderHistorico();
   else if(currentTab==='ajuda') app.innerHTML = renderAjuda();
   attachHandlers();
 }
@@ -1025,6 +1081,56 @@ function renderCargas(){
   `;
 }
 
+function renderHistorico(){
+  const opcoes = [
+    {tipo:'dia', label:'Diário'},
+    {tipo:'semana', label:'Semanal'},
+    {tipo:'mes', label:'Mensal'},
+    {tipo:'ano', label:'Anual'},
+  ];
+  const grupos = agruparVendasPorPeriodo(historicoPeriodo);
+  const maxLucro = Math.max(1, ...grupos.map(g=>Math.abs(g.lucro)));
+  const totalReceita = grupos.reduce((a,g)=>a+g.receita,0);
+  const totalLucro = grupos.reduce((a,g)=>a+g.lucro,0);
+
+  return `
+  <div class="card">
+    <h2>Histórico de Vendas e Lucro</h2>
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+      ${opcoes.map(o=>`
+        <button onclick="mudarHistoricoPeriodo('${o.tipo}')" style="flex:1;min-width:70px;padding:8px 6px;border-radius:6px;border:1.5px solid ${historicoPeriodo===o.tipo?'var(--brick)':'var(--line)'};background:${historicoPeriodo===o.tipo?'var(--brick)':'#fff'};color:${historicoPeriodo===o.tipo?'#fff':'var(--ink)'};font-size:12.5px;font-weight:700;cursor:pointer;">${o.label}</button>
+      `).join('')}
+    </div>
+    <div class="stat-grid">
+      <div class="stat vendas"><div class="label">Total vendido no período</div><div class="value" style="font-size:18px;">${fmtMT(totalReceita)}</div></div>
+      <div class="stat lucro"><div class="label">Lucro total no período</div><div class="value" style="font-size:18px;">${totalLucro>=0?'+':''}${fmtMT(totalLucro)}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    ${grupos.length===0 ? '<div class="empty">Ainda não há vendas registadas.</div>' :
+    grupos.map(g=>{
+      const pct = Math.max(4, Math.round((Math.abs(g.lucro)/maxLucro)*100));
+      return `
+      <div style="padding:10px 0;border-bottom:1px solid var(--line);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+          <span style="font-weight:600;font-size:13px;">${esc(g.label)}</span>
+          <span class="${g.lucro>=0?'lucro-pos':'lucro-neg'}" style="font-size:13.5px;">${g.lucro>=0?'+':''}${fmtMT(g.lucro)}</span>
+        </div>
+        <div style="background:var(--line);border-radius:6px;height:7px;overflow:hidden;margin-bottom:4px;">
+          <div style="background:${g.lucro>=0?'var(--teal)':'var(--brick)'};height:100%;width:${pct}%;"></div>
+        </div>
+        <div style="font-size:11px;color:var(--zinc-3);">${g.qtd} un vendidas · receita ${fmtMT(g.receita)}</div>
+      </div>
+      `;
+    }).join('')}
+  </div>
+  `;
+}
+
+
+const APP_VERSION = '4.5';
+
 function renderAjuda(){
   return `
   <div class="card">
@@ -1079,6 +1185,8 @@ function renderAjuda(){
     <p style="font-size:13px;line-height:1.6;"><b>Aviso "Google não verificou esta app":</b> é normal em apps pequenas — toca em "Avançado" → "Aceder mesmo assim".</p>
     <p style="font-size:13px;line-height:1.6;"><b>Sincronização não aparece no outro telemóvel:</b> confirma que entraste com a mesma conta Google nos dois aparelhos, e aguarda até 15 segundos.</p>
   </div>
+
+  <p class="foot-note">Calculadora de Lucro — versão ${esc(APP_VERSION)}</p>
   `;
 }
 
