@@ -1,4 +1,4 @@
-const CACHE_NAME = 'calculadora-lucro-v4.5';
+const CACHE_NAME = 'calculadora-lucro-v4.8';
 const ASSETS = [
   './index.html',
   './manifest.json',
