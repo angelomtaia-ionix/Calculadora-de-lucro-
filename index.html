@@ -848,6 +848,44 @@ function agruparVendasPorPeriodo(tipo){
   return Object.values(grupos).sort((a,b)=> b.chave.localeCompare(a.chave));
 }
 
+// ---- Entradas agrupadas por período (mesma lógica das vendas) ----
+let entradaPeriodo = 'dia';
+
+function chaveELabelPeriodo(dataStr, tipo){
+  const d = parseDataLocal(dataStr);
+  if(tipo === 'dia'){
+    return { chave: dataStr, label: fmtDate(dataStr) };
+  } else if(tipo === 'semana'){
+    const chave = chaveSemana(dataStr);
+    const inicio = parseDataLocal(chave);
+    const fim = new Date(inicio); fim.setDate(inicio.getDate()+6);
+    return { chave, label: 'Semana de ' + formatarDataCurta(inicio) + ' a ' + formatarDataCurta(fim) };
+  } else if(tipo === 'mes'){
+    return { chave: dataStr.slice(0,7), label: MESES_PT[d.getMonth()] + ' de ' + d.getFullYear() };
+  }
+  return { chave: String(d.getFullYear()), label: String(d.getFullYear()) };
+}
+
+function agruparEntradasPorPeriodo(tipo){
+  const grupos = {};
+  state.entradas.forEach(e=>{
+    const { chave, label } = chaveELabelPeriodo(e.data, tipo);
+    if(!grupos[chave]) grupos[chave] = { chave, label, qtd:0, investido:0, entradas:[] };
+    grupos[chave].qtd += e.qtd;
+    grupos[chave].investido += e.qtd * e.custoUnit;
+    grupos[chave].entradas.push(e);
+  });
+  Object.values(grupos).forEach(g=>{
+    g.entradas.sort((a,b)=> b.data.localeCompare(a.data) || b.id-a.id);
+  });
+  return Object.values(grupos).sort((a,b)=> b.chave.localeCompare(a.chave));
+}
+
+function mudarEntradaPeriodo(tipo){
+  entradaPeriodo = tipo;
+  render();
+}
+
 function mudarHistoricoPeriodo(tipo){
   historicoPeriodo = tipo;
   render();
@@ -875,7 +913,7 @@ function renderResumo(){
     ...state.gastos.map(g=>({...g, tipo:'gasto', data:g.data})),
     ...state.entradas.map(e=>({...e, tipo:'entrada', data:e.data})),
     ...state.vendas.map(v=>({...v, tipo:'venda', data:v.data})),
-  ].sort((a,b)=> b.data.localeCompare(a.data) || (b.id-a.id)).slice(0,8);
+  ].sort((a,b)=> b.data.localeCompare(a.data) || (b.id-a.id));
 
   return `
   <div class="stat-grid">
